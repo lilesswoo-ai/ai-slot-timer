@@ -11,7 +11,7 @@
 
 ### 绿色版（推荐，免安装）
 
-1. 在 **GitHub Releases** 下载 `发条AI时段小组件-绿色版.zip`（约 30MB）。
+1. 在 [**GitHub Releases**](https://github.com/lilesswoo-ai/ai-slot-timer/releases) 下载 `ai-slot-timer-v1.0.0-portable.zip`（约 30MB）。
 2. 解压到任意目录（建议英文或中文路径均可），例如 `D:\发条AI时段小组件\`。
 3. 双击 `发条AI时段小组件.exe` 即启动，**无需安装 Python、无需任何环境依赖**。
 4. 首次启动自动生成 `config.json`；可选：复制 `config.example.json` 为 `config.json` 作模板。

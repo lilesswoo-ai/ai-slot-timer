@@ -8,8 +8,9 @@ __pycache__/
 .venv/
 venv/
 
-# 打包产物（exe 由 PyInstaller 自行构建）
+# 打包产物（exe 由 PyInstaller 自行构建；zip 作为 Release 资产单独上传）
 *.exe
+*.zip
 build/
 dist/
 *.spec
