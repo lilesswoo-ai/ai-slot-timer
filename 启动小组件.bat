@@ -1,26 +1,28 @@
 @echo off
 rem ============================================================
-rem  AI Desktop Widget - silent launcher
-rem  Double-click to start (no console window).
-rem  Exit: right-click the widget -> Exit
+rem  发条AI时段小组件 - launcher
+rem  优先启动 exe（无控制台窗口）；无 exe 时退回源码 pythonw
 rem ============================================================
 cd /d "%~dp0"
 
+if exist "%~dp0发条AI时段小组件.exe" (
+    start "" "%~dp0发条AI时段小组件.exe"
+    exit /b
+)
+
 set "PYW="
-rem 1) 优先用户自己安装的 Python（官方安装器默认目录，Python310~313）
 for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*") do (
     if exist "%%~D\pythonw.exe" if not defined PYW set "PYW=%%~D\pythonw.exe"
 )
 if not defined PYW for /d %%D in ("C:\Python3*") do (
     if exist "%%~D\pythonw.exe" if not defined PYW set "PYW=%%~D\pythonw.exe"
 )
-rem 2) 备选：PATH 中的 pythonw
 if not defined PYW where pythonw >nul 2>nul && set "PYW=pythonw"
 
 if defined PYW (
     start "" "%PYW%" "%~dp0deepseek_chatgpt_timer.py"
 ) else (
-    echo [ERROR] Python 3.9+ (with tkinter / Pillow) not found.
-    echo Please install Python from https://www.python.org/downloads/ and re-run.
+    echo [ERROR] exe 不存在且未找到 Python 3.9+（需 tkinter / Pillow）。
+    echo 请安装 Python: https://www.python.org/downloads/ 后重试。
     pause
 )

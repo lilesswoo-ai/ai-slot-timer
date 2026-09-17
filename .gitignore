@@ -8,6 +8,12 @@ __pycache__/
 .venv/
 venv/
 
+# 打包产物（exe 由 PyInstaller 自行构建）
+*.exe
+build/
+dist/
+*.spec
+
 # 系统
 Thumbs.db
 .DS_Store

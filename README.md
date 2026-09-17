@@ -9,10 +9,14 @@
 
 ## 快速开始
 
-1. 双击 **`启动小组件.bat`**（静默启动，无控制台窗口；首次运行自动生成 `config.json`，或复制 `config.example.json` 为 `config.json`）。
+1. **双击 `发条AI时段小组件.exe`**（推荐，无控制台窗口、无需安装 Python），或双击 **`启动小组件.bat`**（自动优先启动 exe，无 exe 时用源码运行）。
 2. 小组件出现在屏幕右下角，置顶显示，可直接拖到任何位置。
-3. 主界面右下角齿轮 → **设置页**（价格表、声音提醒开关、DeepSeek API Key 余额配置）。
+3. 主界面右下角齿轮 → **设置页**（价格表、声音提醒开关、**开机启动**、DeepSeek API Key 余额配置）。
 4. 点右键呼出菜单：打开设置 / 同步重置时间 / 改周期 / 节假日覆盖 / 置顶开关 / 规则说明 / 退出。
+
+> **开机启动**：设置页打开「开机启动：开」后，登录 Windows 时自动启动（写入当前用户注册表 Run 项，可随时关闭）。
+>
+> **从源码运行**：安装 Python 3.9+（勾选 Add to PATH）后执行 `pythonw deepseek_chatgpt_timer.py`；重新打包 exe 用 `pyinstaller --onefile --noconsole --name "发条AI时段小组件" deepseek_chatgpt_timer.py`。
 
 > **隐私说明**：`config.json` 保存了你的 DeepSeek API Key、余额与重置锚点等私有数据，已被 `.gitignore` 排除，**不会**被提交到 GitHub。仓库中的 `config.example.json` 是空模板。
 

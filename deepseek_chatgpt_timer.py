@@ -57,7 +57,11 @@ try:
 except Exception:
     winsound = None
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# 打包为 exe 时 __file__ 指向临时解压目录，资源目录应为 exe 所在目录
+if getattr(sys, "frozen", False):
+    APP_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
 # ---------------- 界面参数（物理像素设计尺寸） ----------------
@@ -298,6 +302,52 @@ def fmt_week_until(td) -> str:
     return f"{d}天 {h:02d}:{m:02d}" if d > 0 else f"{h:02d}:{m:02d}"
 
 
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_NAME = "发条AI时段小组件"
+
+
+def _autostart_command() -> str:
+    """开机启动命令行：exe 直接注册自身；源码运行注册 pythonw + 脚本。"""
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
+    exe = sys.executable
+    if exe.lower().endswith("python.exe"):   # 换 pythonw 避免开机弹控制台
+        w = os.path.join(os.path.dirname(exe), "pythonw.exe")
+        if os.path.exists(w):
+            exe = w
+    script = os.path.join(APP_DIR, "deepseek_chatgpt_timer.py")
+    return f'"{exe}" "{script}"'
+
+
+def _autostart_enabled() -> bool:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, RUN_NAME)
+            return True
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+
+def _set_autostart(enabled: bool):
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0,
+                            winreg.KEY_SET_VALUE) as k:
+            if enabled:
+                winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ,
+                                  _autostart_command())
+            else:
+                try:
+                    winreg.DeleteValue(k, RUN_NAME)
+                except FileNotFoundError:
+                    pass
+    except Exception:
+        pass
+
+
 def _activate_existing_instance() -> bool:
     """已有实例运行时：显示并置前其窗口，返回 True（新实例应退出）。"""
     try:
@@ -532,26 +582,27 @@ class Widget(tk.Tk):
         self.gpt_bar_fill = cv.create_rectangle(PAD, 250, PAD + 2, 258,
                                                 fill=ACC_C, outline="")
         # 同步按钮（时间 + 日期）+ 右侧一周重置信息（同右对齐到 R）
-        self.btn_sync = cv.create_rectangle(PAD, 266, PAD + 136, 288,
+        self.btn_sync = cv.create_rectangle(PAD, 288, PAD + 136, 310,
                                             fill=BTN_BG, outline="", tags="sync")
-        cv.create_text(PAD + 68, 277, text="同步重置时间", fill=FG_W,
+        cv.create_text(PAD + 68, 299, text="同步重置时间", fill=FG_W,
                        font=(FONT, 9), tags="sync")
         cv.tag_bind("sync", "<Button-1>", lambda e: self.sync_reset_time())
         cv.tag_bind("sync", "<Enter>", lambda e: cv.itemconfig(self.btn_sync, fill=BTN_HOV))
         cv.tag_bind("sync", "<Leave>", lambda e: cv.itemconfig(self.btn_sync, fill=BTN_BG))
-        self.btn_week = cv.create_rectangle(PAD + 144, 266, PAD + 294, 288,
+        self.btn_week = cv.create_rectangle(PAD + 144, 288, PAD + 294, 310,
                                             fill=BTN_BG, outline="", tags="week_sync")
-        cv.create_text(PAD + 219, 277, text="同步重置日期", fill=FG_W,
+        cv.create_text(PAD + 219, 299, text="同步重置日期", fill=FG_W,
                        font=(FONT, 9), tags="week_sync")
         cv.tag_bind("week_sync", "<Button-1>", lambda e: self.sync_reset_date())
         cv.tag_bind("week_sync", "<Enter>",
                     lambda e: cv.itemconfig(self.btn_week, fill=BTN_HOV))
         cv.tag_bind("week_sync", "<Leave>",
                     lambda e: cv.itemconfig(self.btn_week, fill=BTN_BG))
-        self.gpt_week_info = cv.create_text(R, 277, text="", anchor="e",
-                                            fill=FG_W, font=(MONO, 12, "bold"))
+        # 一周重置信息：字号小于“剩”，宽度与上面“剩 xx:xx:xx”接近
+        self.gpt_week_info = cv.create_text(R, 299, text="", anchor="e",
+                                            fill=FG_W, font=(MONO, 10, "bold"))
         # 按钮提示语（按钮下一行）
-        cv.create_text(PAD, 302, text="提示：同步重置时间后自动按 5 小时续算；同步重置日期后自动按 7 天续算",
+        cv.create_text(PAD, 326, text="提示：同步重置时间后自动按 5 小时续算；同步重置日期后自动按 7 天续算",
                        anchor="w", fill=FG_DIM, font=(FONT, 8))
 
         # 底部：提示 + 右下角设置（图标与文字同一行、整体右对齐不出界）
@@ -587,16 +638,9 @@ class Widget(tk.Tk):
         cv.create_image(0, 0, image=self._bg_img, anchor="nw")
         R = DESIGN_W - PAD
 
-        # 标题栏：左"设置"，右上 ← 后退返回主界面
+        # 标题栏：左"设置"
         cv.create_text(PAD, 26, text="设置", anchor="w",
                        fill=FG_DIM, font=(FONT, 8))
-        cv.create_text(R - 40, 26, text="  ←  ", anchor="e", fill=FG_DIM,
-                       font=(FONT, 11), tags="close_set")
-        cv.tag_bind("close_set", "<Button-1>", lambda e: self._close_settings())
-        cv.tag_bind("close_set", "<Enter>",
-                    lambda e: cv.itemconfig("close_set", fill=FG_W))
-        cv.tag_bind("close_set", "<Leave>",
-                    lambda e: cv.itemconfig("close_set", fill=FG_DIM))
 
         # ---- 1) 声音提醒 ----
         cv.create_text(PAD, 54, text="声音提醒", anchor="w",
@@ -643,13 +687,25 @@ class Widget(tk.Tk):
                        fill=FG_W, font=(FONT, 10, "bold"))
         cv.create_text(R, 298, text="官方接口仅支持余额，今日用量请到控制台查看",
                        anchor="e", fill=FG_DIM, font=(FONT, 8))
-        self.set_dskey = self._mk_btn(cv, PAD, 322, 240, "set_dskey", "btn")
-        self.dskey_state = cv.create_text(PAD + 256, 335, text="", anchor="w",
+        self.set_dskey = self._mk_btn(cv, PAD, 316, 240, "set_dskey", "btn")
+        self.dskey_state = cv.create_text(PAD + 256, 329, text="", anchor="w",
                                           fill=ACC_C, font=(FONT, 8))
 
-        # ---- 底部 ----
-        cv.create_text(PAD, 386, text="设置页 ← 返回主界面",
-                       anchor="w", fill=FG_DIM, font=(FONT, 8))
+        # ---- 4) 开机启动 ----
+        self.set_autostart_btn = self._mk_btn(cv, PAD, 352, 240,
+                                              "set_autostart", "btn")
+
+        # ---- 右下角：返回主界面按钮 ----
+        self.btn_back = cv.create_rectangle(R - 176, 358, R - 16, 386,
+                                            fill=BTN_BG, outline="",
+                                            tags="back_btn")
+        cv.create_text(R - 96, 372, text="← 返回主界面", fill=FG_W,
+                       font=(FONT, 9), tags="back_btn")
+        cv.tag_bind("back_btn", "<Button-1>", lambda e: self._close_settings())
+        cv.tag_bind("back_btn", "<Enter>",
+                    lambda e: cv.itemconfig(self.btn_back, fill=BTN_HOV))
+        cv.tag_bind("back_btn", "<Leave>",
+                    lambda e: cv.itemconfig(self.btn_back, fill=BTN_BG))
 
         self._paint_small_btns()
 
@@ -688,6 +744,10 @@ class Widget(tk.Tk):
             play_sound(nxt)
         elif tag == "set_dskey":
             self.set_deepseek_api_key()
+        elif tag == "set_autostart":
+            on = not _autostart_enabled()
+            _set_autostart(on)
+            self.save_cfg()
         self._paint_small_btns()
 
     def _paint_small_btns(self):
@@ -706,6 +766,9 @@ class Widget(tk.Tk):
             "set_snd_kind": ("声音：" + SOUND_LABELS.get(snd_kind, "魅族提示音"),
                              ACC_C, BTN_BG),
             "set_dskey": ("设置 DeepSeek API Key", FG_W, BTN_BG),
+            "set_autostart": ("开机启动：" + ("开" if _autostart_enabled() else "关"),
+                              "#7dffc0" if _autostart_enabled() else FG_W,
+                              BTN_ON if _autostart_enabled() else BTN_BG),
         }
         for tag, (text, fg, bg) in labels.items():
             r, t = self._set_btns.get(tag, (None, None))
