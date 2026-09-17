@@ -163,6 +163,13 @@ def fmt_hm(t: datetime) -> str:
     return f"{WEEKDAY_CN[t.weekday()]} {t.strftime('%H:%M')}"
 
 
+def fmt_range(a: datetime, b: datetime) -> str:
+    """起止区间：同日省略结束周几（周五 09:00-12:00）；跨天两端带周几（18:00-周五 09:00）"""
+    if a.date() == b.date():
+        return f"{fmt_hm(a)}-{b.strftime('%H:%M')}"
+    return f"{fmt_hm(a)}-{fmt_hm(b)}"
+
+
 def make_gradient(w: int, h: int, c1, c2) -> Image.Image:
     """垂直渐变：顶部 c1（深蓝）→ 底部 c2（浅蓝）。"""
     img = Image.new("RGB", (w, h))
@@ -560,7 +567,10 @@ class Widget(tk.Tk):
         self.ds_remain = cv.create_text(R, 96, text="", anchor="e",
                                         fill=FG_W, font=(MONO, 14, "bold"))
         self.ds_sub = cv.create_text(PAD, 126, text="", anchor="w",
-                                     fill=FG_DIM, font=(MONO, 10))
+                                     fill=FG_DIM, font=(MONO, 9))
+        # 下一段闲时 右对齐到右缘，避免整行过长出框
+        self.ds_sub_r = cv.create_text(R, 126, text="", anchor="e",
+                                       fill=FG_DIM, font=(MONO, 9))
         self.ds_balance = cv.create_text(PAD, 152, text="", anchor="w",
                                          fill=FG_DIM, font=(FONT, 8))
         # 分割线下移，与 ChatGPT 区块等高（两区纵向空间一致）
@@ -1087,6 +1097,7 @@ class Widget(tk.Tk):
             cv.itemconfig(self.ds_main, text="全天闲时（无时段切换）", fill=OFF_C)
             cv.itemconfig(self.ds_remain, text="")
             cv.itemconfig(self.ds_sub, text="")
+            cv.itemconfig(self.ds_sub_r, text="")
         else:
             phase = "忙时" if peak else "闲时"
             cv.itemconfig(self.ds_main,
@@ -1095,7 +1106,7 @@ class Widget(tk.Tk):
             cv.itemconfig(self.ds_remain,
                           text="剩 " + fmt_until(t1 - now),
                           fill=PEAK_C if peak else OFF_C)
-            # 下一段忙时 / 下一段闲时 两个时段信息
+            # 下一段忙时（左）/ 下一段闲时（右对齐）两个时段信息
             if t2:
                 st1 = is_peak(t1, self.override)
                 t3 = _walk(t2, st1)
@@ -1107,13 +1118,15 @@ class Widget(tk.Tk):
                     busy_a, busy_b = t2, t3
                 if off_b and busy_b:
                     cv.itemconfig(self.ds_sub,
-                                  text=f"下一段忙时 {fmt_hm(busy_a)}-{fmt_hm(busy_b)}"
-                                       f" ｜ 下一段闲时 {fmt_hm(off_a)}-{fmt_hm(off_b)}")
+                                  text=f"下一段忙时 {fmt_range(busy_a, busy_b)}")
+                    cv.itemconfig(self.ds_sub_r,
+                                  text=f"下一段闲时 {fmt_range(off_a, off_b)}")
                 else:
-                    cv.itemconfig(self.ds_sub,
-                                  text=f"下一段忙时 {fmt_hm(t1)} 起 ｜ 下一段闲时 {fmt_hm(t1)} 起")
+                    cv.itemconfig(self.ds_sub, text="")
+                    cv.itemconfig(self.ds_sub_r, text="")
             else:
                 cv.itemconfig(self.ds_sub, text="")
+                cv.itemconfig(self.ds_sub_r, text="")
 
         # 余额显示（15 分钟刷新一次，需在设置页配置 API Key）
         self._maybe_refresh_balance(now_ts)
@@ -1199,9 +1212,9 @@ class Widget(tk.Tk):
             st1 = is_peak(t1, None)
             t3 = _walk(t2, st1)
             if st1:
-                sub = f"下一段忙时 {fmt_hm(t1)}-{fmt_hm(t2)} ｜ 下一段闲时 {fmt_hm(t2)}-{fmt_hm(t3)}"
+                sub = f"下一段忙时 {fmt_range(t1, t2)} ｜ 下一段闲时 {fmt_range(t2, t3)}"
             else:
-                sub = f"下一段忙时 {fmt_hm(t2)}-{fmt_hm(t3)} ｜ 下一段闲时 {fmt_hm(t1)}-{fmt_hm(t2)}"
+                sub = f"下一段忙时 {fmt_range(t2, t3)} ｜ 下一段闲时 {fmt_range(t1, t2)}"
             lines.append(f"[selftest] sub_line: {sub}")
         lines.append(f"[selftest] balance: key={'set' if self.cfg.get('deepseek_api_key') else 'none'} "
                      f"state={self._balance}")
