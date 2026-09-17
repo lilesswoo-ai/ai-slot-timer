@@ -1,0 +1,18 @@
+{
+  "gpt_reset_hours": 5.0,
+  "gpt_reset_ts": null,
+  "gpt_last_reset_ts": 0.0,
+  "gpt_week_reset_ts": null,
+  "gpt_week_last_reset_ts": 0.0,
+  "topmost": true,
+  "pos": {
+    "x": 600,
+    "y": 300
+  },
+  "ds_override": null,
+  "ds_sound": false,
+  "gpt_sound": false,
+  "sound_kind": "meizu",
+  "gpt_auto_send": false,
+  "deepseek_api_key": ""
+}

@@ -1,0 +1,14 @@
+# 隐私：config.json 含 DeepSeek API Key、余额、重置时间等本地私有数据，绝不入库
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 系统
+Thumbs.db
+.DS_Store
+desktop.ini
