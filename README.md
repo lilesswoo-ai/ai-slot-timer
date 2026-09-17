@@ -9,7 +9,19 @@
 
 ## 快速开始
 
-### 绿色版（推荐，免安装）
+### 安装版（推荐，带桌面图标 + 可选开机启动）
+
+1. 在 [**GitHub Releases**](https://github.com/lilesswoo-ai/ai-slot-timer/releases) 下载 `ai-slot-timer-setup-1.0.0.exe`（约 32MB）。
+2. 双击运行安装程序（中文向导，**无需管理员权限**）：
+   - 默认安装到 `%LOCALAPPDATA%\发条AI时段小组件`，可改目录
+   - **自动创建桌面快捷方式**
+   - 勾选「开机自动启动」可让登录 Windows 时自动运行（可选）
+3. 安装完成后自动启动小组件；开始菜单也可随时启动。
+4. 卸载：开始菜单/设置 → 卸载「发条AI时段小组件」，会同时删除桌面图标与开机启动项。
+
+> 安装版与绿色版功能完全相同，仅分发形态不同（安装版自动建桌面图标、可选开机启动、带卸载程序）。
+
+### 绿色版（免安装）
 
 1. 在 [**GitHub Releases**](https://github.com/lilesswoo-ai/ai-slot-timer/releases) 下载 `ai-slot-timer-v1.0.0-portable.zip`（约 30MB）。
 2. 解压到任意目录（建议英文或中文路径均可），例如 `D:\发条AI时段小组件\`。
