@@ -563,35 +563,32 @@ class Widget(tk.Tk):
                                      fill=FG_DIM, font=(MONO, 10))
         self.ds_balance = cv.create_text(PAD, 152, text="", anchor="w",
                                          fill=FG_DIM, font=(FONT, 8))
-        cv.create_line(PAD, 174, R, 174, fill=DIVIDER, width=1)
+        # 分割线下移，与 ChatGPT 区块等高（两区纵向空间一致）
+        cv.create_line(PAD, 190, R, 190, fill=DIVIDER, width=1)
 
-        # ---- ChatGPT 区块（5小时 + 一周双窗口） ----
+        # ---- ChatGPT 区块（5小时 + 一周双窗口，无进度条） ----
         if self._icon_gpt:
-            cv.create_image(PAD, 176, image=self._icon_gpt, anchor="nw")
-        cv.create_text(PAD + 38, 190, text="ChatGPT 额度重置", anchor="w",
+            cv.create_image(PAD, 192, image=self._icon_gpt, anchor="nw")
+        cv.create_text(PAD + 38, 206, text="ChatGPT 额度重置", anchor="w",
                        fill=FG_W, font=(FONT, 10, "bold"))
         # 5小时行
-        cv.create_text(PAD, 214, text="下次重置", anchor="w",
+        cv.create_text(PAD, 240, text="下次重置", anchor="w",
                        fill=FG_DIM, font=(FONT, 9))
-        self.gpt_next = cv.create_text(PAD + 78, 214, text="", anchor="w",
+        self.gpt_next = cv.create_text(PAD + 78, 240, text="", anchor="w",
                                        fill=FG_W, font=(MONO, 12, "bold"))
-        self.gpt_remain = cv.create_text(R, 214, text="", anchor="e",
+        self.gpt_remain = cv.create_text(R, 240, text="", anchor="e",
                                          fill=PEAK_C, font=(MONO, 14, "bold"))
-        # 5小时进度条
-        cv.create_rectangle(PAD, 250, R, 258, fill=BAR_BG, outline="")
-        self.gpt_bar_fill = cv.create_rectangle(PAD, 250, PAD + 2, 258,
-                                                fill=ACC_C, outline="")
         # 同步按钮（时间 + 日期）+ 右侧一周重置信息（同右对齐到 R）
-        self.btn_sync = cv.create_rectangle(PAD, 288, PAD + 136, 310,
+        self.btn_sync = cv.create_rectangle(PAD, 272, PAD + 136, 294,
                                             fill=BTN_BG, outline="", tags="sync")
-        cv.create_text(PAD + 68, 299, text="同步重置时间", fill=FG_W,
+        cv.create_text(PAD + 68, 283, text="同步重置时间", fill=FG_W,
                        font=(FONT, 9), tags="sync")
         cv.tag_bind("sync", "<Button-1>", lambda e: self.sync_reset_time())
         cv.tag_bind("sync", "<Enter>", lambda e: cv.itemconfig(self.btn_sync, fill=BTN_HOV))
         cv.tag_bind("sync", "<Leave>", lambda e: cv.itemconfig(self.btn_sync, fill=BTN_BG))
-        self.btn_week = cv.create_rectangle(PAD + 144, 288, PAD + 294, 310,
+        self.btn_week = cv.create_rectangle(PAD + 144, 272, PAD + 294, 294,
                                             fill=BTN_BG, outline="", tags="week_sync")
-        cv.create_text(PAD + 219, 299, text="同步重置日期", fill=FG_W,
+        cv.create_text(PAD + 219, 283, text="同步重置日期", fill=FG_W,
                        font=(FONT, 9), tags="week_sync")
         cv.tag_bind("week_sync", "<Button-1>", lambda e: self.sync_reset_date())
         cv.tag_bind("week_sync", "<Enter>",
@@ -599,10 +596,10 @@ class Widget(tk.Tk):
         cv.tag_bind("week_sync", "<Leave>",
                     lambda e: cv.itemconfig(self.btn_week, fill=BTN_BG))
         # 一周重置信息：字号小于“剩”，宽度与上面“剩 xx:xx:xx”接近
-        self.gpt_week_info = cv.create_text(R, 299, text="", anchor="e",
+        self.gpt_week_info = cv.create_text(R, 283, text="", anchor="e",
                                             fill=FG_W, font=(MONO, 10, "bold"))
-        # 按钮提示语（按钮下一行）
-        cv.create_text(PAD, 326, text="提示：同步重置时间后自动按 5 小时续算；同步重置日期后自动按 7 天续算",
+        # 按钮提示语（按钮下一行；与 DeepSeek 区块等高）
+        cv.create_text(PAD, 340, text="提示：同步重置时间后自动按 5 小时续算；同步重置日期后自动按 7 天续算",
                        anchor="w", fill=FG_DIM, font=(FONT, 8))
 
         # 底部：提示 + 右下角设置（图标与文字同一行、整体右对齐不出界）
@@ -1174,14 +1171,6 @@ class Widget(tk.Tk):
                       text=f"一周重置 {wend_dt.month}月{wend_dt.day}日")
         if wst.get("rolled"):
             self.save_cfg()          # 持久化新的周重置锚点
-
-        # 进度条（5 小时窗口）
-        bar_w = DESIGN_W - 2 * PAD
-        fill_w = max(2, int(bar_w * st["progress"]))
-        cv.coords(self.gpt_bar_fill, PAD, 250, PAD + fill_w, 258)
-        color = ACC_C if st["progress"] < 0.8 else \
-            (WARN_C if st["progress"] < 0.95 else PEAK_C)
-        cv.itemconfig(self.gpt_bar_fill, fill=color)
 
         self.after(1000, self.tick)
 
