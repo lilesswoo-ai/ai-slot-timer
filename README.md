@@ -1,4 +1,5 @@
 # 发条AI时段小组件 (ai-slot-timer)
+<img width="615" height="420" alt="image" src="https://github.com/user-attachments/assets/8699c1de-f57a-4460-bc52-35cb24670376" />
 
 一块 Windows 桌面置顶小组件（**深蓝→浅蓝垂直渐变底 + 圆角卡片**，白色文字，带 DeepSeek 鲸鱼 / ChatGPT 螺旋徽章图标），同时显示两件事，帮你安排任务时间：
 
