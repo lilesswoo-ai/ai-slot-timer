@@ -9,14 +9,26 @@
 
 ## 快速开始
 
-1. **双击 `发条AI时段小组件.exe`**（推荐，无控制台窗口、无需安装 Python），或双击 **`启动小组件.bat`**（自动优先启动 exe，无 exe 时用源码运行）。
-2. 小组件出现在屏幕右下角，置顶显示，可直接拖到任何位置。
-3. 主界面右下角齿轮 → **设置页**（价格表、声音提醒开关、**开机启动**、DeepSeek API Key 余额配置）。
-4. 点右键呼出菜单：打开设置 / 同步重置时间 / 改周期 / 节假日覆盖 / 置顶开关 / 规则说明 / 退出。
+### 绿色版（推荐，免安装）
+
+1. 在 **GitHub Releases** 下载 `发条AI时段小组件-绿色版.zip`（约 30MB）。
+2. 解压到任意目录（建议英文或中文路径均可），例如 `D:\发条AI时段小组件\`。
+3. 双击 `发条AI时段小组件.exe` 即启动，**无需安装 Python、无需任何环境依赖**。
+4. 首次启动自动生成 `config.json`；可选：复制 `config.example.json` 为 `config.json` 作模板。
+5. 主界面右下角齿轮 → **设置页**（声音提醒、开机启动、DeepSeek API Key 余额配置）。
+
+> **绿色版目录结构**：`发条AI时段小组件.exe`（主程序）、`assets/`（图标，勿删）、`short-notification-sound-for-meizu.mp3`（默认提示音，可替换同名文件自定义）、`启动小组件.bat`（备用启动器）、`README.md`、`config.example.json`（配置模板）。
+>
+> **运行环境**：Windows 7 SP1+ / 10 / 11（64 位），普通用户权限即可，无任何运行时依赖。想换提示音直接替换 `short-notification-sound-for-meizu.mp3`。
+
+### 从源码运行（开发用）
+
+1. 安装 Python 3.9+（勾选 **Add Python to PATH**）。
+2. `pip install pillow pystray`（可选，托盘图标）。
+3. `pythonw deepseek_chatgpt_timer.py` 启动；`python deepseek_chatgpt_timer.py --selftest` 自检。
+4. 重新打包 exe：`pyinstaller --onefile --noconsole --name "发条AI时段小组件" deepseek_chatgpt_timer.py`。
 
 > **开机启动**：设置页打开「开机启动：开」后，登录 Windows 时自动启动（写入当前用户注册表 Run 项，可随时关闭）。
->
-> **从源码运行**：安装 Python 3.9+（勾选 Add to PATH）后执行 `pythonw deepseek_chatgpt_timer.py`；重新打包 exe 用 `pyinstaller --onefile --noconsole --name "发条AI时段小组件" deepseek_chatgpt_timer.py`。
 
 > **隐私说明**：`config.json` 保存了你的 DeepSeek API Key、余额与重置锚点等私有数据，已被 `.gitignore` 排除，**不会**被提交到 GitHub。仓库中的 `config.example.json` 是空模板。
 
