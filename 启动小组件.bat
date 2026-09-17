@@ -7,14 +7,20 @@ rem ============================================================
 cd /d "%~dp0"
 
 set "PYW="
-where pythonw >nul 2>nul && set "PYW=pythonw"
-if not defined PYW for /f "delims=" %%i in ('where python 2^>nul') do (
-    if exist "%%~dpi\pythonw.exe" set "PYW=%%~dpi\pythonw.exe"
+rem 1) 优先用户自己安装的 Python（官方安装器默认目录，Python310~313）
+for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*") do (
+    if exist "%%~D\pythonw.exe" if not defined PYW set "PYW=%%~D\pythonw.exe"
 )
+if not defined PYW for /d %%D in ("C:\Python3*") do (
+    if exist "%%~D\pythonw.exe" if not defined PYW set "PYW=%%~D\pythonw.exe"
+)
+rem 2) 备选：PATH 中的 pythonw
+if not defined PYW where pythonw >nul 2>nul && set "PYW=pythonw"
 
 if defined PYW (
     start "" "%PYW%" "%~dp0deepseek_chatgpt_timer.py"
 ) else (
-    echo [ERROR] pythonw.exe not found. Please install Python 3.9+ with "Add Python to PATH".
+    echo [ERROR] Python 3.9+ (with tkinter / Pillow) not found.
+    echo Please install Python from https://www.python.org/downloads/ and re-run.
     pause
 )

@@ -298,10 +298,30 @@ def fmt_week_until(td) -> str:
     return f"{d}天 {h:02d}:{m:02d}" if d > 0 else f"{h:02d}:{m:02d}"
 
 
+def _activate_existing_instance() -> bool:
+    """已有实例运行时：显示并置前其窗口，返回 True（新实例应退出）。"""
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, "发条AI时段小组件")
+        if hwnd:
+            if not user32.IsWindowVisible(hwnd):
+                user32.ShowWindow(hwnd, 5)     # SW_SHOW（从托盘隐藏恢复）
+            user32.ShowWindow(hwnd, 9)         # SW_RESTORE
+            user32.SetForegroundWindow(hwnd)
+            user32.BringWindowToTop(hwnd)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 # ---------------- 小组件 UI（双页面：主界面 / 设置页） ----------------
 class Widget(tk.Tk):
 
     def __init__(self):
+        # 单实例：已有小组件在运行则激活它，避免重复启动
+        if _activate_existing_instance():
+            sys.exit(0)
         super().__init__()
         self.cfg = self.load_cfg()
         self.counter = ChatGPTCounter(self.cfg)
