@@ -14,5 +14,33 @@
   "gpt_sound": false,
   "sound_kind": "meizu",
   "gpt_auto_send": false,
-  "deepseek_api_key": ""
+  "deepseek_api_key": "",
+  "rotate_seconds": 60,
+  "sub_warn_days": 3,
+  "subscriptions": [
+    {
+      "name": "即梦",
+      "renew_day": 1,
+      "enabled": true,
+      "color": "#7ec8ff"
+    },
+    {
+      "name": "Running Hub",
+      "renew_day": 1,
+      "enabled": true,
+      "color": "#ffb4a2"
+    },
+    {
+      "name": "豆包免费",
+      "expire_date": "2026-09-25",
+      "enabled": true,
+      "color": "#7fd8a0"
+    },
+    {
+      "name": "WorkBuddy 积分",
+      "expire_date": "2026-09-26",
+      "enabled": true,
+      "color": "#c9a6ff"
+    }
+  ]
 }

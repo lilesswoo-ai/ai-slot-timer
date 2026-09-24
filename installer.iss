@@ -7,7 +7,7 @@ AppId={{8F4E3D2C-1A2B-4C3D-9E8F-0A1B2C3D4E5F}
 DefaultDirName={localappdata}\发条AI时段小组件
 DefaultGroupName=发条AI时段小组件
 DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\发条AI时段小组件.exe
+UninstallDisplayIcon={app}\app.ico
 SetupIconFile=assets\deepseek_3.ico
 OutputDir=.
 OutputBaseFilename=ai-slot-timer-setup-1.0.0
@@ -30,13 +30,15 @@ Name: "autostart"; Description: "开机自动启动（登录 Windows 时自动�
 Source: "发条AI时段小组件.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "short-notification-sound-for-meizu.mp3"; DestDir: "{app}"; Flags: ignoreversion
+Source: "settings.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.example.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "app.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "启动小组件.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autodesktop}\发条AI时段小组件"; Filename: "{app}\发条AI时段小组件.exe"; Tasks: desktopicon
-Name: "{autoprograms}\发条AI时段小组件"; Filename: "{app}\发条AI时段小组件.exe"
+Name: "{autodesktop}\发条AI时段小组件"; Filename: "{app}\发条AI时段小组件.exe"; IconFilename: "{app}\app.ico"; Tasks: desktopicon
+Name: "{autoprograms}\发条AI时段小组件"; Filename: "{app}\发条AI时段小组件.exe"; IconFilename: "{app}\app.ico"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "发条AI时段小组件"; ValueData: """{app}\发条AI时段小组件.exe"""; Flags: uninsdeletevalue; Tasks: autostart

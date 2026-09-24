@@ -2,22 +2,23 @@
 """
 发条AI时段小组件
 ===============
-一块置顶、可拖拽的圆角渐变面板（带系统托盘图标），显示：
+一块置顶、可拖拽的圆角渐变面板（带系统托盘图标），多页面轮播显示：
 
  1) DeepSeek 峰谷计价
     当前忙/闲状态、距本阶段结束倒计时、下一段起止时间。
  2) ChatGPT 额度重置
     按用量页显示的具体「下次重置」时刻倒计时（可同步），未设置时按 5h 周期。
+ 3) 订阅到期提醒（多页面）
+    内置「即梦 / Running Hub / 豆包免费 / WorkBuddy 积分」预设 + 自定义订阅；
+    订阅分两种：按月续费日（每月 N 日续费）与固定日期到期（YYYY-MM-DD），倒计时剩余天数；
+    订阅多了自动增加页面；默认每 60 秒自动切换到下一页（可点标题栏 ◀ 页码 ▶ 手动切）；
+    到期前 N 天（默认 3，可调）文字变红，每 3 秒红/浅红交替闪烁提醒。
+ 4) ChatGPT 每月续费到期提醒
+    按「每月 N 日」（默认 5 日，设置页可改）倒计时续费，到期前 N 天同样红字闪烁提醒。
 
-主界面右下角齿轮进入「设置页」（与主界面同尺寸）：
- - 价格表：忙/闲时输入输出价格（每百万 tokens）
- - 声音提醒开关：DeepSeek 忙闲切换、GPT 重置到达时可选提示音（默认魅族提示音）
- - ChatGPT 重置时间同步 / 窗口周期 / 置顶开关
-
-其他功能：
- - 置顶按钮：一键切换置顶
- - 系统托盘：关闭（×）只隐藏到托盘，点托盘图标恢复，退出需点“退出”
- - 右键菜单：同步重置时间 / 改周期 / 节假日覆盖 / 提醒声音 / 置顶 / 退出
+设置页已改为「网页形式」：主界面右下角齿轮（或右键 → 打开设置）会打开
+本机内置网页（http://127.0.0.1:<端口>/），在浏览器大页面里管理全部设置：
+订阅管理、轮播间隔、提醒天数、声音、DeepSeek API Key、ChatGPT 窗口周期等。
 
 定价规则来源（DeepSeek 官方定价页，2026-08-17 起生效、08-23 优化）：
     高峰时段 = 北京时间 周一至周五 09:00-12:00、14:00-18:00
@@ -29,8 +30,9 @@
 
 依赖：Python 3.9+，tkinter + Pillow + pystray（托盘）。
 用法：
-    pythonw deepseek_chatgpt_timer.py        # 静默启动
-    python  deepseek_chatgpt_timer.py --selftest   # 逻辑自检
+    pythonw deepseek_chatgpt_timer.py            # 静默启动
+    python  deepseek_chatgpt_timer.py --selftest # 逻辑自检
+    python  deepseek_chatgpt_timer.py --preview [输出目录]  # 逐页截图（验证用）
 """
 
 import json
@@ -40,8 +42,12 @@ import re
 import sys
 import threading
 import time
+import webbrowser
 from datetime import datetime, timedelta, date as date_obj
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import simpledialog, messagebox
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
@@ -65,14 +71,16 @@ else:
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
 # ---------------- 界面参数（物理像素设计尺寸） ----------------
-DESIGN_W, DESIGN_H = 600, 400
+DESIGN_W, DESIGN_H = 600, 400   # 设计稿尺寸（内部布局坐标基准）
 PAD = 16
+UI_SCALE = 0.75                   # 宽度/字号缩放系数（1.0=原尺寸）
+UI_SCALE_H = 0.9                  # 高度缩放系数（可单独调高，当前=360 高）
 GRAD_TOP = (27, 62, 148)     # 深蓝（顶部）
 GRAD_BOT = (112, 170, 240)   # 浅蓝（底部）
 GRAD_BG_HEX = "#1b3e94"
 
-FONT = "Microsoft YaHei UI"
-MONO = "Consolas"
+FONT = "Microsoft YaHei"        # 全部文字统一微软雅黑
+MONO = FONT                     # 数字/时段也使用微软雅黑（与正文一致）
 FG_W = "#ffffff"
 FG_DIM = "#eaf4ff"
 PEAK_C = "#ffb4a2"   # 忙时（暖橙红）
@@ -84,6 +92,23 @@ BTN_BG = "#163d8a"
 BTN_HOV = "#1e54b5"
 BTN_ON = "#1d6f45"   # 开关开
 BAR_BG = "#0e2a63"
+
+# ---------------- 订阅到期提醒参数 ----------------
+SUB_PRESETS = [                      # 内置订阅预设（可改续费日/到期日/停用/删除）
+    {"name": "即梦", "renew_day": 1, "color": "#7ec8ff"},
+    {"name": "Running Hub", "renew_day": 1, "color": "#ffb4a2"},
+    {"name": "豆包免费", "expire_date": "2026-09-25", "color": "#7fd8a0"},
+    {"name": "WorkBuddy 积分", "expire_date": "2026-09-26", "color": "#c9a6ff"},
+]
+SUB_PER_PAGE = 4                     # 每页最多显示几个订阅
+DEFAULT_WARN_DAYS = 3                # 到期前 N 天红字提醒（默认 3，可调）
+DEFAULT_ROTATE_SECONDS = 60          # 页面轮播间隔（默认 60 秒，可调）
+FLASH_SECONDS = 3.0                  # 红字闪烁：每 3 秒红/浅红交替
+WARN_RED = "#ff5252"                 # 提醒红
+WARN_RED_LIGHT = "#ffd0cc"           # 提醒浅红（闪烁另一相）
+CARD_BG = "#1a3f8f"                  # 订阅卡片底
+CARD_OUT = "#2f5fb5"                 # 订阅卡片描边
+LOGO_SIZE = 34                       # 订阅卡片左侧自动 LOGO 圆直径（设计坐标）
 
 # ---------------- DeepSeek 峰谷规则与价格 ----------------
 # 高峰(忙时): 北京时间 周一至周五 09:00-12:00、14:00-18:00
@@ -181,6 +206,35 @@ def make_gradient(w: int, h: int, c1, c2) -> Image.Image:
     return img
 
 
+def _logo_fg(hexcolor: str) -> str:
+    """订阅徽标文字颜色：浅色底用深色字，深色底用白字。"""
+    try:
+        r = int(hexcolor[1:3], 16)
+        g = int(hexcolor[3:5], 16)
+        b = int(hexcolor[5:7], 16)
+        return "#12213a" if (r * 299 + g * 587 + b * 114) / 1000 > 160 else "#ffffff"
+    except Exception:
+        return "#ffffff"
+
+
+def make_logo_img(text: str, hexcolor: str, size: int) -> Image.Image:
+    """生成正圆形订阅徽标（RGBA）：品牌色圆 + 白色/深色首字符。
+    size 为最终物理像素直径；用 PIL 预渲染可避免 canvas 非等比缩放把圆压扁。"""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse([0, 0, size - 1, size - 1], fill=hexcolor)
+    fg = _logo_fg(hexcolor)
+    try:
+        font = ImageFont.truetype("C:/Windows/Fonts/msyhbd.ttc", max(8, int(size * 0.52)))
+    except Exception:
+        try:
+            font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", max(8, int(size * 0.52)))
+        except Exception:
+            font = ImageFont.load_default()
+    d.text((size / 2, size / 2), text, font=font, fill=fg, anchor="mm")
+    return img
+
+
 def make_gear(size: int = 20, color=(255, 255, 255)) -> Image.Image:
     """画一个简单齿轮图标（设置按钮用）。"""
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -217,6 +271,42 @@ def play_sound(kind: str):
             winsound.Beep(1200, 150)
     except Exception:
         pass
+
+
+# ---------------- 订阅到期倒计时（按月续费日 / 固定日期到期） ----------------
+def month_days(y: int, m: int) -> int:
+    """该月天数。"""
+    if m == 12:
+        return (date_obj(y + 1, 1, 1) - date_obj(y, 12, 1)).days
+    return (date_obj(y, m + 1, 1) - date_obj(y, m, 1)).days
+
+
+def next_renew_date(renew_day: int, today: date_obj) -> date_obj:
+    """最近一次（含今天）的续费日；续费日大于当月天数时截断到月末。"""
+    renew_day = max(1, min(31, int(renew_day)))
+    y, m = today.year, today.month
+    for _ in range(2):
+        d = min(renew_day, month_days(y, m))
+        dt = date_obj(y, m, d)
+        if dt >= today:
+            return dt
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return date_obj(y, m, 1)
+
+
+def sub_status(s: dict, today: date_obj):
+    """返回 (剩余天数, 下一个关键日期)。天数<0 表示已过期。
+    按月订阅（renew_day）算到下一个续费日；固定日期订阅（expire_date）算到到期日。"""
+    ed = s.get("expire_date")
+    if ed:
+        try:
+            d = datetime.strptime(str(ed).strip(), "%Y-%m-%d").date()
+        except Exception:
+            d = today
+        return (d - today).days, d
+    renew_day = int(s.get("renew_day") or 1)
+    nxt = next_renew_date(renew_day, today)
+    return (nxt - today).days, nxt
 
 
 # ---------------- ChatGPT 额度重置计数器 ----------------
@@ -372,13 +462,14 @@ def _activate_existing_instance() -> bool:
     return False
 
 
-# ---------------- 小组件 UI（双页面：主界面 / 设置页） ----------------
+# ---------------- 小组件 UI（多页面：主界面 + 订阅页；设置走网页） ----------------
 class Widget(tk.Tk):
 
     def __init__(self):
-        # 单实例：已有小组件在运行则激活它，避免重复启动
-        if _activate_existing_instance():
-            sys.exit(0)
+        # 单实例：已有小组件在运行则激活它，避免重复启动（自检/预览模式跳过）
+        if "--selftest" not in sys.argv and "--preview" not in sys.argv:
+            if _activate_existing_instance():
+                sys.exit(0)
         super().__init__()
         self.cfg = self.load_cfg()
         self.counter = ChatGPTCounter(self.cfg)
@@ -389,49 +480,68 @@ class Widget(tk.Tk):
         self._gpt_alerted = None    # 已提醒的 GPT 重置时刻
         self._tray = None
         self._closing = False
-        self.page = "main"          # "main" | "settings"
-        self._set_btns = {}         # tag -> (矩形id, 文字id)
         self._auto_send_pending = False   # 等待自动发送
         self._auto_send_at = 0.0          # 自动发送执行时刻
         self._balance = None        # None=未设置Key / dict=查询结果 / "err"=失败
         self._balance_fetched_at = 0.0    # 上次成功查询时间
 
+        # ---- 多页面状态 ----
+        self.page_idx = 0                 # 当前页下标（0=主界面，1..=订阅页）
+        self._page_count = 1              # 总页数
+        self._indicator_ids = []          # （兼容保留）各页标题栏页码指示器 text id
+        self._nav_prev = {}               # 各页标题栏「◀」三角 id
+        self._nav_next = {}               # 各页标题栏「▶」三角 id
+        self._nav_nums = {}               # 各页标题栏页码数字 id 列表（pg -> [ids]）
+        self._sub_dynamic = []            # 订阅动态文本项（与启用的订阅对齐）
+        self._flash_on = False            # 红字闪烁相位
+        self._last_switch = time.time()   # 上次切页时刻
+        self._last_flash = time.time()    # 上次闪烁切换时刻
+
+        # ---- 网页设置服务 ----
+        self._httpd = None
+        self._http_port = 0
+        self._web_pending = []        # HTTP 线程投递的配置，由主线程 tick 统一应用
+
         self.overrideredirect(True)
         self.title("发条AI时段小组件")
         self.attributes("-topmost", bool(self.cfg.get("topmost", True)))
 
-        self._bg_img = ImageTk.PhotoImage(
-            make_gradient(DESIGN_W, DESIGN_H, GRAD_TOP, GRAD_BOT))
         self._icon_ds = self._load_icon("deepseek_icon.png")
         self._icon_gpt = self._load_icon("chatgpt_icon.png")
-        self._gear_img = ImageTk.PhotoImage(make_gear(20, (255, 255, 255)))
+        _gear = make_gear(20, (255, 255, 255))
+        if abs(UI_SCALE - 1.0) > 1e-9:
+            _gear = _gear.resize(
+                (max(1, int(20 * UI_SCALE)), max(1, int(20 * UI_SCALE))),
+                Image.LANCZOS)
+        self._gear_img = ImageTk.PhotoImage(_gear)
+        self._bg_img = None
 
         self.canvas = tk.Canvas(self, highlightthickness=0, bd=0,
-                                bg=GRAD_BG_HEX, width=DESIGN_W, height=DESIGN_H)
-        self.canvas.pack()
-        self.canvas_set = tk.Canvas(self, highlightthickness=0, bd=0,
-                                    bg=GRAD_BG_HEX, width=DESIGN_W,
-                                    height=DESIGN_H)
-        # 页面切换用 pack 顺序控制：后 pack 的在上层
-        self.canvas_set.pack()
+                                bg=GRAD_BG_HEX,
+                                width=int(DESIGN_W * UI_SCALE),
+                                height=int(DESIGN_H * UI_SCALE_H))
         self.canvas.pack()
 
-        self._build_main_ui()
+        self.rebuild_pages()
         self._bind_events()
 
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        x = self.cfg.get("pos", {}).get("x")
-        y = self.cfg.get("pos", {}).get("y")
-        if not x or not y:
-            x = sw - DESIGN_W
-            y = sh - DESIGN_H
-        self.geometry(f"{DESIGN_W}x{DESIGN_H}+{int(x)}+{int(y)}")
+        pos = self.cfg.get("pos") or {}
+        x = pos.get("x")
+        y = pos.get("y")
+        ww, wh = int(DESIGN_W * UI_SCALE), int(DESIGN_H * UI_SCALE_H)
+        # 旧位置在新窗口尺寸下可能超出屏幕（越界则回到右下角）
+        if not x or not y or x + ww > sw or y + wh > sh:
+            x = sw - ww
+            y = sh - wh
+        self.geometry(f"{ww}x{wh}+{int(x)}+{int(y)}")
         self.update_idletasks()
         self._apply_round_rect()
 
+        self.start_web_settings()
         self.tick()
         self.save_cfg()
-        if "--selftest" not in sys.argv:
+        if "--selftest" not in sys.argv and "--preview" not in sys.argv:
             self.after(300, self._init_tray)
 
     # ---------- 配置持久化 ----------
@@ -439,9 +549,52 @@ class Widget(tk.Tk):
         try:
             # utf-8-sig：兼容带 BOM 的配置文件（如 PowerShell 写入的 UTF-8）
             with open(CONFIG_PATH, "r", encoding="utf-8-sig") as f:
-                return json.load(f)
+                cfg = json.load(f)
         except Exception:
-            return {}
+            cfg = {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        # 订阅：首次运行自动内置「即梦 / Running Hub / 豆包免费 / WorkBuddy 积分」预设
+        subs = cfg.get("subscriptions")
+        if not isinstance(subs, list):
+            subs = []
+            for p in SUB_PRESETS:
+                item = {"name": p["name"], "enabled": True, "color": p["color"]}
+                if p.get("expire_date"):
+                    item["expire_date"] = p["expire_date"]
+                else:
+                    item["renew_day"] = p.get("renew_day", 1)
+                subs.append(item)
+            cfg["subscriptions"] = subs
+        else:
+            for s in subs:
+                if not isinstance(s, dict):
+                    continue
+                s["enabled"] = bool(s.get("enabled", True))
+                name = str(s.get("name", "订阅")).strip()[:20] or "订阅"
+                if name == "季梦":               # 旧版预设名迁移
+                    name = "即梦"
+                s["name"] = name
+                s["color"] = str(s.get("color", "#7ec8ff"))
+                ed = s.get("expire_date")
+                if ed:
+                    try:
+                        datetime.strptime(str(ed).strip(), "%Y-%m-%d")
+                        s["expire_date"] = str(ed).strip()
+                    except Exception:
+                        s.pop("expire_date", None)
+                        ed = None
+                if not ed:
+                    try:
+                        s["renew_day"] = max(1, min(31, int(s.get("renew_day", 1) or 1)))
+                    except Exception:
+                        s["renew_day"] = 1
+                    s.pop("expire_date", None)
+        cfg.setdefault("sub_warn_days", DEFAULT_WARN_DAYS)
+        cfg.setdefault("rotate_seconds", DEFAULT_ROTATE_SECONDS)
+        cfg.setdefault("topmost", True)
+        cfg.setdefault("gpt_renew_day", 5)   # ChatGPT 每月续费日（默认下月 5 号）
+        return cfg
 
     def save_cfg(self):
         data = {
@@ -458,6 +611,10 @@ class Widget(tk.Tk):
             "sound_kind": self.cfg.get("sound_kind", "meizu"),
             "gpt_auto_send": bool(self.cfg.get("gpt_auto_send", False)),
             "deepseek_api_key": self.cfg.get("deepseek_api_key", ""),
+            "rotate_seconds": int(self.cfg.get("rotate_seconds", DEFAULT_ROTATE_SECONDS)),
+            "sub_warn_days": int(self.cfg.get("sub_warn_days", DEFAULT_WARN_DAYS)),
+            "gpt_renew_day": int(self.cfg.get("gpt_renew_day", 5) or 5),
+            "subscriptions": self.cfg.get("subscriptions", []),
         }
         try:
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -467,8 +624,12 @@ class Widget(tk.Tk):
 
     def _load_icon(self, name):
         try:
-            return ImageTk.PhotoImage(
-                Image.open(os.path.join(APP_DIR, "assets", name)).convert("RGBA"))
+            img = Image.open(os.path.join(APP_DIR, "assets", name)).convert("RGBA")
+            if abs(UI_SCALE - 1.0) > 1e-9:
+                img = img.resize(
+                    (max(1, int(img.width * UI_SCALE)),
+                     max(1, int(img.height * UI_SCALE))), Image.LANCZOS)
+            return ImageTk.PhotoImage(img)
         except Exception:
             return None
 
@@ -476,7 +637,9 @@ class Widget(tk.Tk):
         try:
             hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
             hrgn = ctypes.windll.gdi32.CreateRoundRectRgn(
-                0, 0, DESIGN_W + 1, DESIGN_H + 1, radius * 2, radius * 2)
+                0, 0, int(DESIGN_W * UI_SCALE) + 1,
+                int(DESIGN_H * UI_SCALE_H) + 1,
+                int(radius * 2 * UI_SCALE), int(radius * 2 * UI_SCALE))
             ctypes.windll.user32.SetWindowRgn(hwnd, hrgn, True)
         except Exception:
             pass
@@ -532,263 +695,295 @@ class Widget(tk.Tk):
                 self._tray.stop()
         except Exception:
             pass
+        try:
+            if self._httpd:
+                self._httpd.shutdown()
+        except Exception:
+            pass
         self.destroy()
 
-    # ---------- 主界面 ----------
-    def _build_main_ui(self):
-        cv = self.canvas
-        cv.create_image(0, 0, image=self._bg_img, anchor="nw")
-        R = DESIGN_W - PAD
+    # ---------- 多页面构建 / 切换 ----------
+    def _enabled_subs(self):
+        return [s for s in self.cfg.get("subscriptions", [])
+                if isinstance(s, dict) and s.get("enabled", True)]
 
-        # 标题栏：左标题，右 [置顶:开] [×]
+    def rebuild_pages(self):
+        """重建全部页面（启动时 / 设置变化后）。"""
+        cv = self.canvas
+        cv.delete("all")
+        self._bg_img = ImageTk.PhotoImage(
+            make_gradient(int(DESIGN_W * UI_SCALE), int(DESIGN_H * UI_SCALE_H),
+                          GRAD_TOP, GRAD_BOT))
+        cv.create_image(0, 0, image=self._bg_img, anchor="nw", tags="bg")
+
+        self._indicator_ids = []
+        self._nav_prev = {}
+        self._nav_next = {}
+        self._nav_nums = {}
+        self._sub_dynamic = []
+        self._logo_imgs = []              # 订阅徽标位图引用（防 GC）
+        self._build_main_page()
+        subs = self._enabled_subs()
+        sub_pages = (len(subs) + SUB_PER_PAGE - 1) // SUB_PER_PAGE if subs else 0
+        self._build_sub_pages(subs, sub_pages)
+        self._page_count = 1 + sub_pages
+        if self.page_idx >= self._page_count:
+            self.page_idx = 0
+        self._last_switch = time.time()
+        self._build_page_nav()
+        self._bind_page_events()
+        self.show_page(self.page_idx)
+        self._paint_pin()
+        self._scale_ui()
+
+    def _scale_ui(self):
+        """把整界面按缩放系数变换；scale 不改文字字号/图片尺寸，字号按宽度系数单独缩放。"""
+        SX, SY = UI_SCALE, UI_SCALE_H
+        if abs(SX - 1.0) < 1e-9 and abs(SY - 1.0) < 1e-9:
+            return
+        cv = self.canvas
+        cv.scale("all", 0, 0, SX, SY)
+        for item in cv.find_all():
+            try:
+                t = cv.type(item)
+            except Exception:
+                continue
+            if t == "text":
+                try:
+                    font = cv.itemcget(item, "font") or ""
+                    m = re.search(r"(\d+(?:\.\d+)?)", font)
+                    if m:
+                        size = max(2, int(round(float(m.group(1)) * SX)))
+                        cv.itemconfig(
+                            item, font=re.sub(r"\d+(?:\.\d+)?", str(size), font, count=1))
+                except Exception:
+                    pass
+            elif t in ("line", "rectangle", "oval", "polygon"):
+                try:
+                    w = cv.itemcget(item, "width")
+                    if w and float(w) < 1:
+                        cv.itemconfig(item, width=1)
+                except Exception:
+                    pass
+
+    def show_page(self, idx):
+        """显示第 idx 页（隐藏其它页）。"""
+        self.page_idx = idx % max(1, self._page_count)
+        cv = self.canvas
+        for k in range(self._page_count):
+            cv.itemconfig("pg%d" % k,
+                          state="normal" if k == self.page_idx else "hidden")
+        self._paint_page_indicator()
+        self._paint_current()
+
+    def next_page(self):
+        if self._page_count <= 1:
+            return
+        self.show_page((self.page_idx + 1) % self._page_count)
+
+    def prev_page(self):
+        if self._page_count <= 1:
+            return
+        self.show_page((self.page_idx - 1) % self._page_count)
+
+    def _on_page_num(self, e):
+        """点击页码数字直接跳页。"""
+        try:
+            items = self.canvas.find_withtag("current")
+            if not items:
+                return
+            self.show_page(int(self.canvas.itemcget(items[0], "text")) - 1)
+        except Exception:
+            pass
+
+    def _build_page_nav(self):
+        """每页标题栏画 ◀ 页码1..N ▶：左/右实心三角 + 中间全部页码数字（当前页高亮）。"""
+        cv = self.canvas
+        R = DESIGN_W - PAD
+        y = 26
+        num_w = 13
+        tri_w = 12
+        total_w = tri_w + self._page_count * num_w + tri_w
+        # 右边缘停在「置顶:开」文本（锚点 R-88）左侧约 50px，避免与置顶文字重叠
+        x0 = (R - 96) - total_w - 52
+        for pg in range(self._page_count):
+            tag0 = "pg%d" % pg
+            self._nav_prev[pg] = cv.create_polygon(
+                x0 + 10, y - 5, x0, y, x0 + 10, y + 5,
+                fill=FG_DIM, outline="", tags=(tag0, "prev"))
+            ids = []
+            for i in range(self._page_count):
+                nx = x0 + tri_w + i * num_w + num_w // 2
+                ids.append(cv.create_text(
+                    nx, y, text=str(i + 1), anchor="center",
+                    fill=FG_DIM, font=(FONT, 9), tags=(tag0, "page_num")))
+            self._nav_nums[pg] = ids
+            x1 = x0 + total_w - tri_w
+            self._nav_next[pg] = cv.create_polygon(
+                x1, y - 5, x1 + 10, y, x1, y + 5,
+                fill=FG_DIM, outline="", tags=(tag0, "next"))
+
+    def _paint_page_indicator(self):
+        """更新页码导航高亮：当前页亮蓝，其它页暗色（字号已在 _scale_ui 统一缩放，这里只改颜色）。"""
+        cur = self.page_idx
+        cv = self.canvas
+        for ids in self._nav_nums.values():
+            for i, tid in enumerate(ids):
+                cv.itemconfig(tid, fill=ACC_C if i == cur else FG_DIM)
+
+    # ---------- 主界面（第 0 页） ----------
+    def _build_main_page(self):
+        cv = self.canvas
+        R = DESIGN_W - PAD
+        PG0 = "pg0"
+
+        # 标题栏：左标题，右 [◀ 页码 ▶] [置顶:开] [×]
         cv.create_text(PAD, 26, text="发条AI时段小组件", anchor="w",
-                       fill=FG_DIM, font=(FONT, 8))
+                       fill=FG_DIM, font=(FONT, 8), tags=PG0)
         cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
-                       font=(FONT, 11), tags="close")
-        cv.tag_bind("close", "<Button-1>", lambda e: self._hide_to_tray())
-        cv.tag_bind("close", "<Enter>", lambda e: cv.itemconfig("close", fill=FG_W))
-        cv.tag_bind("close", "<Leave>", lambda e: cv.itemconfig("close", fill=FG_DIM))
+                       font=(FONT, 11), tags=(PG0, "close"))
         self.pin_btn = cv.create_text(R - 88, 26, text="", anchor="e",
-                                      fill=ACC_C, font=(FONT, 8), tags="pin")
-        cv.tag_bind("pin", "<Button-1>", lambda e: self.toggle_topmost())
-        cv.tag_bind("pin", "<Enter>", lambda e: cv.itemconfig("pin", fill=FG_W))
-        cv.tag_bind("pin", "<Leave>", lambda e: self._paint_pin())
+                                      fill=ACC_C, font=(FONT, 8), tags=(PG0, "pin"))
 
         # ---- DeepSeek 区块 ----
         if self._icon_ds:
-            cv.create_image(PAD, 44, image=self._icon_ds, anchor="nw")
+            cv.create_image(PAD, 44, image=self._icon_ds, anchor="nw", tags=PG0)
         cv.create_text(PAD + 38, 56, text="DeepSeek 峰谷计价", anchor="w",
-                       fill=FG_W, font=(FONT, 10, "bold"))
+                       fill=FG_W, font=(FONT, 10, "bold"), tags=PG0)
         self.ds_badge = cv.create_text(R, 56, text="", anchor="e",
-                                       fill=OFF_C, font=(FONT, 9, "bold"))
+                                       fill=OFF_C, font=(FONT, 9, "bold"), tags=PG0)
         self.ds_main = cv.create_text(PAD, 96, text="", anchor="w",
-                                      fill=FG_W, font=(MONO, 14, "bold"))
-        # “剩 xx:xx:xx”右对齐（右缘与下方 GPT 行的“剩”对齐），颜色随闲忙
+                                      fill=FG_W, font=(MONO, 14, "bold"), tags=PG0)
         self.ds_remain = cv.create_text(R, 96, text="", anchor="e",
-                                        fill=FG_W, font=(MONO, 14, "bold"))
+                                        fill=FG_W, font=(MONO, 14, "bold"), tags=PG0)
         self.ds_sub = cv.create_text(PAD, 126, text="", anchor="w",
-                                     fill=FG_DIM, font=(MONO, 9))
-        # 下一段闲时 右对齐到右缘，避免整行过长出框
+                                     fill=FG_DIM, font=(MONO, 9), tags=PG0)
         self.ds_sub_r = cv.create_text(R, 126, text="", anchor="e",
-                                       fill=FG_DIM, font=(MONO, 9))
+                                       fill=FG_DIM, font=(MONO, 9), tags=PG0)
         self.ds_balance = cv.create_text(PAD, 152, text="", anchor="w",
-                                         fill=FG_DIM, font=(FONT, 8))
-        # 分割线下移，与 ChatGPT 区块等高（两区纵向空间一致）
-        cv.create_line(PAD, 190, R, 190, fill=DIVIDER, width=1)
+                                         fill=FG_DIM, font=(FONT, 8), tags=PG0)
+        cv.create_line(PAD, 190, R, 190, fill=DIVIDER, width=1, tags=PG0)
 
         # ---- ChatGPT 区块（5小时 + 一周双窗口，无进度条） ----
         if self._icon_gpt:
-            cv.create_image(PAD, 192, image=self._icon_gpt, anchor="nw")
+            cv.create_image(PAD, 192, image=self._icon_gpt, anchor="nw", tags=PG0)
         cv.create_text(PAD + 38, 206, text="ChatGPT 额度重置", anchor="w",
-                       fill=FG_W, font=(FONT, 10, "bold"))
-        # 5小时行
+                       fill=FG_W, font=(FONT, 10, "bold"), tags=PG0)
         cv.create_text(PAD, 240, text="下次重置", anchor="w",
-                       fill=FG_DIM, font=(FONT, 9))
+                       fill=FG_DIM, font=(FONT, 9), tags=PG0)
         self.gpt_next = cv.create_text(PAD + 78, 240, text="", anchor="w",
-                                       fill=FG_W, font=(MONO, 12, "bold"))
+                                       fill=FG_W, font=(MONO, 12, "bold"), tags=PG0)
         self.gpt_remain = cv.create_text(R, 240, text="", anchor="e",
-                                         fill=PEAK_C, font=(MONO, 14, "bold"))
-        # 同步按钮（时间 + 日期）+ 右侧一周重置信息（同右对齐到 R）
+                                         fill=PEAK_C, font=(MONO, 14, "bold"), tags=PG0)
         self.btn_sync = cv.create_rectangle(PAD, 272, PAD + 136, 294,
-                                            fill=BTN_BG, outline="", tags="sync")
+                                            fill=BTN_BG, outline="",
+                                            tags=(PG0, "sync"))
         cv.create_text(PAD + 68, 283, text="同步重置时间", fill=FG_W,
-                       font=(FONT, 9), tags="sync")
-        cv.tag_bind("sync", "<Button-1>", lambda e: self.sync_reset_time())
-        cv.tag_bind("sync", "<Enter>", lambda e: cv.itemconfig(self.btn_sync, fill=BTN_HOV))
-        cv.tag_bind("sync", "<Leave>", lambda e: cv.itemconfig(self.btn_sync, fill=BTN_BG))
+                       font=(FONT, 9), tags=(PG0, "sync"))
         self.btn_week = cv.create_rectangle(PAD + 144, 272, PAD + 294, 294,
-                                            fill=BTN_BG, outline="", tags="week_sync")
+                                            fill=BTN_BG, outline="",
+                                            tags=(PG0, "week_sync"))
         cv.create_text(PAD + 219, 283, text="同步重置日期", fill=FG_W,
-                       font=(FONT, 9), tags="week_sync")
-        cv.tag_bind("week_sync", "<Button-1>", lambda e: self.sync_reset_date())
-        cv.tag_bind("week_sync", "<Enter>",
-                    lambda e: cv.itemconfig(self.btn_week, fill=BTN_HOV))
-        cv.tag_bind("week_sync", "<Leave>",
-                    lambda e: cv.itemconfig(self.btn_week, fill=BTN_BG))
-        # 一周重置信息：字号小于“剩”，宽度与上面“剩 xx:xx:xx”接近
+                       font=(FONT, 9), tags=(PG0, "week_sync"))
         self.gpt_week_info = cv.create_text(R, 283, text="", anchor="e",
-                                            fill=FG_W, font=(MONO, 10, "bold"))
-        # 按钮提示语（按钮下一行；与 DeepSeek 区块等高）
-        cv.create_text(PAD, 340, text="提示：同步重置时间后自动按 5 小时续算；同步重置日期后自动按 7 天续算",
-                       anchor="w", fill=FG_DIM, font=(FONT, 8))
+                                            fill=FG_W, font=(MONO, 10, "bold"),
+                                            tags=PG0)
+        self.gpt_sub = cv.create_text(R, 305, text="", anchor="e",
+                                      fill=FG_DIM, font=(MONO, 9), tags=PG0)
+        cv.create_text(PAD, 340,
+                       text="提示：同步重置时间后自动按 5 小时续算；同步重置日期后自动按 7 天续算",
+                       anchor="w", fill=FG_DIM, font=(FONT, 8), tags=PG0)
 
-        # 底部：提示 + 右下角设置（图标与文字同一行、整体右对齐不出界）
+        # 底部：提示 + 右下角设置
         cv.create_text(PAD, 384, text="右键：菜单 · 拖拽移动 · × 隐藏到托盘",
-                       anchor="w", fill=FG_DIM, font=(FONT, 8))
+                       anchor="w", fill=FG_DIM, font=(FONT, 8), tags=PG0)
         cv.create_image(R - 44, 372, image=self._gear_img, anchor="center",
-                        tags="gear")
+                        tags=(PG0, "gear"))
         cv.create_text(R - 28, 372, text="设置", anchor="w", fill=FG_DIM,
-                       font=(FONT, 7), tags="gear")
-        cv.tag_bind("gear", "<Button-1>", lambda e: self._show_settings())
+                       font=(FONT, 7), tags=(PG0, "gear"))
+
+    # ---------- 订阅页（第 1..N 页） ----------
+    def _build_sub_pages(self, subs, sub_pages):
+        cv = self.canvas
+        R = DESIGN_W - PAD
+        warn_days = int(self.cfg.get("sub_warn_days", DEFAULT_WARN_DAYS))
+        for k in range(sub_pages):
+            pg = k + 1
+            tag0 = "pg%d" % pg
+            cv.create_text(PAD, 26, text="订阅到期提醒", anchor="w",
+                           fill=FG_DIM, font=(FONT, 8), tags=tag0)
+            cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
+                           font=(FONT, 11), tags=(tag0, "close"))
+            cv.create_image(R - 44, 372, image=self._gear_img, anchor="center",
+                            tags=(tag0, "gear"))
+            cv.create_text(R - 28, 372, text="设置", anchor="w", fill=FG_DIM,
+                           font=(FONT, 7), tags=(tag0, "gear"))
+            cv.create_text(PAD, 384,
+                           text=f"右键：菜单 · 到期前 {warn_days} 天红字提醒 · × 隐藏到托盘",
+                           anchor="w", fill=FG_DIM, font=(FONT, 8), tags=tag0)
+
+            for r in range(SUB_PER_PAGE):
+                i = k * SUB_PER_PAGE + r
+                if i >= len(subs):
+                    break
+                s = subs[i]
+                y = 52 + r * 80
+                cv.create_rectangle(PAD, y, R, y + 72, fill=CARD_BG,
+                                    outline=CARD_OUT, tags=tag0)
+                # 自动 LOGO：正圆形徽标（PIL 预渲染，避免非等比缩放压扁）
+                logo_char = s["name"][0].upper()
+                logo_img = ImageTk.PhotoImage(make_logo_img(
+                    logo_char, s.get("color", ACC_C),
+                    max(2, int(LOGO_SIZE * UI_SCALE))))
+                self._logo_imgs.append(logo_img)
+                cv.create_image(PAD + 12, y + (72 - LOGO_SIZE) // 2,
+                                image=logo_img, anchor="nw", tags=tag0)
+                tip = ("一次性到期" if s.get("expire_date")
+                       else f"每月 {s.get('renew_day', 1)} 日续费")
+                cv.create_text(PAD + 56, y + 24, text=s["name"], anchor="w",
+                               fill=FG_W, font=(FONT, 13, "bold"), tags=tag0)
+                cv.create_text(PAD + 56, y + 48, text=tip,
+                               anchor="w", fill=FG_DIM, font=(FONT, 9), tags=tag0)
+                big = cv.create_text(R - 20, y + 24, text="", anchor="e",
+                                     fill=FG_W, font=(MONO, 15, "bold"), tags=tag0)
+                sub = cv.create_text(R - 20, y + 50, text="", anchor="e",
+                                     fill=FG_DIM, font=(FONT, 9), tags=tag0)
+                self._sub_dynamic.append({"sub": s, "big": big, "subtext": sub})
+
+        # 没有任何启用订阅时的占位提示（只建一页提示，不占轮播）
+        if not subs:
+            cv.create_text(DESIGN_W // 2, 200, anchor="center",
+                           text="暂无订阅到期提醒\n点击右下角「设置」添加（内置 即梦 / Running Hub 等预设）",
+                           fill=FG_DIM, font=(FONT, 12), justify="center",
+                           tags="pg1")
+
+    # ---------- 页面事件绑定（删除重建后重新绑定） ----------
+    def _bind_page_events(self):
+        cv = self.canvas
+        cv.tag_bind("close", "<Button-1>", lambda e: self._hide_to_tray())
+        cv.tag_bind("pin", "<Button-1>", lambda e: self.toggle_topmost())
+        cv.tag_bind("gear", "<Button-1>", lambda e: self.open_web_settings())
+        cv.tag_bind("prev", "<Button-1>", lambda e: self.prev_page())
+        cv.tag_bind("next", "<Button-1>", lambda e: self.next_page())
+        cv.tag_bind("page_num", "<Button-1>", self._on_page_num)
+        cv.tag_bind("sync", "<Button-1>", lambda e: self.sync_reset_time())
+        cv.tag_bind("week_sync", "<Button-1>", lambda e: self.sync_reset_date())
+        cv.tag_bind("close", "<Enter>", lambda e: cv.itemconfig("close", fill=FG_W))
+        cv.tag_bind("close", "<Leave>", lambda e: cv.itemconfig("close", fill=FG_DIM))
+        cv.tag_bind("pin", "<Enter>", lambda e: cv.itemconfig("pin", fill=FG_W))
+        cv.tag_bind("pin", "<Leave>", lambda e: self._paint_pin())
         cv.tag_bind("gear", "<Enter>",
                     lambda e: cv.itemconfig("gear", state="active"))
         cv.tag_bind("gear", "<Leave>",
                     lambda e: cv.itemconfig("gear", state="normal"))
-
-    # ---------- 设置页 ----------
-    def _show_settings(self):
-        self._build_settings_ui()
-        self.canvas.pack_forget()
-        self.canvas_set.pack()
-        self.page = "settings"
-
-    def _close_settings(self):
-        self.canvas_set.pack_forget()
-        self.canvas.pack()
-        self.page = "main"
-        self._paint_pin()
-        self.tick()
-
-    def _build_settings_ui(self):
-        cv = self.canvas_set
-        cv.delete("all")
-        cv.create_image(0, 0, image=self._bg_img, anchor="nw")
-        R = DESIGN_W - PAD
-
-        # 标题栏：左"设置"
-        cv.create_text(PAD, 26, text="设置", anchor="w",
-                       fill=FG_DIM, font=(FONT, 8))
-
-        # ---- 1) 声音提醒 ----
-        cv.create_text(PAD, 54, text="声音提醒", anchor="w",
-                       fill=FG_W, font=(FONT, 10, "bold"))
-        cv.create_text(R, 54, text="忙/闲切换到达、GPT 重置到达时响铃",
-                       anchor="e", fill=FG_DIM, font=(FONT, 8))
-        self.set_snd_ds = self._mk_btn(cv, PAD, 76, 230, "set_snd_ds", "snd")
-        self.set_snd_gpt = self._mk_btn(cv, PAD + 246, 76, 150, "set_snd_gpt", "snd")
-        self.set_snd_kind = self._mk_btn(cv, PAD + 412, 76, 156, "set_snd_kind", "snd")
-        cv.create_line(PAD, 118, R, 118, fill=DIVIDER, width=1)
-
-        # ---- 2) DeepSeek 价格表 ----
-        cv.create_text(PAD, 142, text="DeepSeek 价格表（元 / 百万 tokens）",
-                       anchor="w", fill=FG_W, font=(FONT, 10, "bold"))
-        # 表头（与数据列同起点，左对齐保证上下对齐）
-        cv.create_text(PAD + 40, 168, text="模型", anchor="w",
-                       fill=FG_DIM, font=(FONT, 9))
-        cv.create_text(200, 168, text="忙时 · 高峰", anchor="w",
-                       fill=PEAK_C, font=(FONT, 9, "bold"))
-        cv.create_text(400, 168, text="闲时 · 半价", anchor="w",
-                       fill=OFF_C, font=(FONT, 9, "bold"))
-        cv.create_line(PAD, 180, R, 180, fill="#7aa8e8", width=1)
-        p1, p2 = PRICES["deepseek-flash"], PRICES["deepseek-v4-pro"]
-        rows = [
-            ("Flash", p1),
-            ("Pro", p2),
-        ]
-        for i, (name, p) in enumerate(rows):
-            y = 194 + i * 26
-            cv.create_text(PAD + 40, y, text=name, anchor="w",
-                           fill=FG_W, font=(MONO, 9, "bold"))
-            cv.create_text(200, y,
-                           text=f"输入 {p['input'][1]:g} / 输出 {p['output'][1]:g}",
-                           anchor="w", fill=PEAK_C, font=(MONO, 9))
-            cv.create_text(400, y,
-                           text=f"输入 {p['input'][0]:g} / 输出 {p['output'][0]:g}",
-                           anchor="w", fill=OFF_C, font=(MONO, 9))
-        cv.create_text(PAD, 254, text="输入为缓存未命中价；闲时价 = 高峰价的一半",
-                       anchor="w", fill=FG_DIM, font=(FONT, 8))
-        cv.create_line(PAD, 272, R, 272, fill=DIVIDER, width=1)
-
-        # ---- 3) DeepSeek 余额 ----
-        cv.create_text(PAD, 298, text="DeepSeek 余额", anchor="w",
-                       fill=FG_W, font=(FONT, 10, "bold"))
-        cv.create_text(R, 298, text="官方接口仅支持余额，今日用量请到控制台查看",
-                       anchor="e", fill=FG_DIM, font=(FONT, 8))
-        self.set_dskey = self._mk_btn(cv, PAD, 316, 240, "set_dskey", "btn")
-        self.dskey_state = cv.create_text(PAD + 256, 329, text="", anchor="w",
-                                          fill=ACC_C, font=(FONT, 8))
-
-        # ---- 4) 开机启动 ----
-        self.set_autostart_btn = self._mk_btn(cv, PAD, 352, 240,
-                                              "set_autostart", "btn")
-
-        # ---- 右下角：返回主界面按钮 ----
-        self.btn_back = cv.create_rectangle(R - 176, 358, R - 16, 386,
-                                            fill=BTN_BG, outline="",
-                                            tags="back_btn")
-        cv.create_text(R - 96, 372, text="← 返回主界面", fill=FG_W,
-                       font=(FONT, 9), tags="back_btn")
-        cv.tag_bind("back_btn", "<Button-1>", lambda e: self._close_settings())
-        cv.tag_bind("back_btn", "<Enter>",
-                    lambda e: cv.itemconfig(self.btn_back, fill=BTN_HOV))
-        cv.tag_bind("back_btn", "<Leave>",
-                    lambda e: cv.itemconfig(self.btn_back, fill=BTN_BG))
-
-        self._paint_small_btns()
-
-    def _mk_btn(self, cv, x, y, w, tag, kind):
-        """在指定 canvas 创建一个小按钮，返回 (矩形id, 文字id)。kind: snd/btn"""
-        r = cv.create_rectangle(x, y, x + w, y + 26, fill=BTN_BG,
-                                outline="", tags=tag)
-        t = cv.create_text(x + w // 2, y + 13, text="", fill=FG_W,
-                           font=(FONT, 8), tags=tag)
-        self._set_btns[tag] = (r, t)
-        cv.tag_bind(tag, "<Button-1>",
-                    lambda e, tg=tag: self._on_small_btn(tg))
-        cv.tag_bind(tag, "<Enter>",
-                    lambda e: cv.itemconfig(r, fill=BTN_HOV))
-        cv.tag_bind(tag, "<Leave>",
-                    lambda e: self._paint_small_btns())
-        return (r, t)
-
-    def _on_small_btn(self, tag):
-        if tag == "set_snd_ds":
-            self.cfg["ds_sound"] = not self.cfg.get("ds_sound", False)
-            self.save_cfg()
-            if self.cfg["ds_sound"]:
-                play_sound(self.cfg.get("sound_kind", "meizu"))
-        elif tag == "set_snd_gpt":
-            self.cfg["gpt_sound"] = not self.cfg.get("gpt_sound", False)
-            self.save_cfg()
-            if self.cfg["gpt_sound"]:
-                play_sound(self.cfg.get("sound_kind", "meizu"))
-        elif tag == "set_snd_kind":
-            kinds = SOUND_KINDS
-            cur = self.cfg.get("sound_kind", "meizu")
-            nxt = kinds[(kinds.index(cur) + 1) % len(kinds)] if cur in kinds else "meizu"
-            self.cfg["sound_kind"] = nxt
-            self.save_cfg()
-            play_sound(nxt)
-        elif tag == "set_dskey":
-            self.set_deepseek_api_key()
-        elif tag == "set_autostart":
-            on = not _autostart_enabled()
-            _set_autostart(on)
-            self.save_cfg()
-        self._paint_small_btns()
-
-    def _paint_small_btns(self):
-        cv = self.canvas_set
-        ds_on = self.cfg.get("ds_sound", False)
-        gpt_on = self.cfg.get("gpt_sound", False)
-        snd_kind = self.cfg.get("sound_kind", "meizu")
-        key = self.cfg.get("deepseek_api_key", "")
-        labels = {
-            "set_snd_ds": ("DeepSeek 切换提醒：" + ("开" if ds_on else "关"),
-                           "#7dffc0" if ds_on else FG_W,
-                           BTN_ON if ds_on else BTN_BG),
-            "set_snd_gpt": ("GPT 重置提醒：" + ("开" if gpt_on else "关"),
-                            "#7dffc0" if gpt_on else FG_W,
-                            BTN_ON if gpt_on else BTN_BG),
-            "set_snd_kind": ("声音：" + SOUND_LABELS.get(snd_kind, "魅族提示音"),
-                             ACC_C, BTN_BG),
-            "set_dskey": ("设置 DeepSeek API Key", FG_W, BTN_BG),
-            "set_autostart": ("开机启动：" + ("开" if _autostart_enabled() else "关"),
-                              "#7dffc0" if _autostart_enabled() else FG_W,
-                              BTN_ON if _autostart_enabled() else BTN_BG),
-        }
-        for tag, (text, fg, bg) in labels.items():
-            r, t = self._set_btns.get(tag, (None, None))
-            if r is None:
-                continue
-            cv.itemconfig(r, fill=bg)
-            cv.itemconfig(t, text=text, fill=fg)
-        # API Key 状态文字
-        if key:
-            cv.itemconfig(self.dskey_state,
-                          text=f"已设置 {key[:6]}…", fill=ACC_C)
-        else:
-            cv.itemconfig(self.dskey_state, text="未设置", fill=FG_DIM)
+        cv.tag_bind("sync", "<Enter>",
+                    lambda e: cv.itemconfig(self.btn_sync, fill=BTN_HOV))
+        cv.tag_bind("sync", "<Leave>",
+                    lambda e: cv.itemconfig(self.btn_sync, fill=BTN_BG))
+        cv.tag_bind("week_sync", "<Enter>",
+                    lambda e: cv.itemconfig(self.btn_week, fill=BTN_HOV))
+        cv.tag_bind("week_sync", "<Leave>",
+                    lambda e: cv.itemconfig(self.btn_week, fill=BTN_BG))
 
     # ---------- 事件 ----------
     def _bind_events(self):
@@ -817,7 +1012,9 @@ class Widget(tk.Tk):
         m = tk.Menu(self, tearoff=0, bg="#122b5e", fg=FG_W,
                     activebackground="#1e54b5", activeforeground=FG_W,
                     font=(FONT, 9))
-        m.add_command(label="打开设置", command=self._show_settings)
+        m.add_command(label="打开设置（网页）", command=self.open_web_settings)
+        m.add_command(label="下一页", command=self.next_page)
+        m.add_separator()
         m.add_command(label="同步 ChatGPT 重置时间…", command=self.sync_reset_time)
         if self.counter.reset_ts is not None:
             m.add_command(label="清除自定义重置时间（恢复 5 小时周期）",
@@ -847,12 +1044,10 @@ class Widget(tk.Tk):
     def toggle_ds_sound_menu(self):
         self.cfg["ds_sound"] = not self.cfg.get("ds_sound", False)
         self.save_cfg()
-        self._paint_small_btns()
 
     def toggle_gpt_sound_menu(self):
         self.cfg["gpt_sound"] = not self.cfg.get("gpt_sound", False)
         self.save_cfg()
-        self._paint_small_btns()
 
     # ---------- ChatGPT 同步 ----------
     def sync_reset_time(self):
@@ -938,6 +1133,7 @@ class Widget(tk.Tk):
 
     def toggle_topmost(self):
         self.attributes("-topmost", not self.attributes("-topmost"))
+        self.cfg["topmost"] = bool(self.attributes("-topmost"))
         self._paint_pin()
         self.save_cfg()
 
@@ -957,10 +1153,243 @@ class Widget(tk.Tk):
             "ChatGPT 额度重置\n"
             "· 额度按「每 N 小时窗口」滚动计数，用量页会显示具体的下次重置时刻\n"
             "· 点【同步重置时间】输入页面显示的时刻即可倒计时\n\n"
+            "订阅到期提醒\n"
+            "· 设置页（网页）可添加/编辑订阅：按月续费日（每月 N 日）或固定日期到期（YYYY-MM-DD）\n"
+            "· 订阅多了自动增加页面，默认每 60 秒自动切换，也可点标题栏 ◀ 页码 ▶ 手动切\n"
+            "· 到期前 N 天（默认 3）文字变红，每 3 秒红/浅红交替闪烁提醒\n"
+            "· ChatGPT 每月续费日（默认每月 5 日）也按同样规则红字提醒，续费日在设置页可改\n\n"
             "声音提醒：DeepSeek 忙/闲切换到达、GPT 重置到达时响铃\n"
             "托盘：× 仅隐藏，点托盘图标恢复，退出请用菜单/托盘“退出”\n\n"
             "参考项目：github.com/CodeZeno/Claude-Code-Usage-Monitor（MIT）\n"
             "           npmjs.com/package/ds-peak-warningx", parent=self)
+
+    # ---------- 网页设置（本地 HTTP 服务） ----------
+    def start_web_settings(self):
+        """启动 127.0.0.1 随机端口 HTTP 服务，提供设置网页与配置读写 API。"""
+
+        class _Handler(BaseHTTPRequestHandler):
+            app = None
+
+            def log_message(self, *args):
+                pass
+
+            def _send(self, code, body, ctype="application/json; charset=utf-8"):
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except Exception:
+                    pass
+
+            def do_GET(self):
+                path = urlsplit(self.path).path
+                if path in ("/", "/index.html"):
+                    html = self.app.settings_html()
+                    self._send(200, html.encode("utf-8"),
+                               "text/html; charset=utf-8")
+                elif path == "/api/config":
+                    body = json.dumps(self.app.web_config_snapshot(),
+                                      ensure_ascii=False).encode("utf-8")
+                    self._send(200, body)
+                else:
+                    self._send(404, b"not found")
+
+            def do_POST(self):
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                    if length <= 0 or length > 512 * 1024:
+                        raise ValueError
+                    data = json.loads(self.rfile.read(length).decode("utf-8"))
+                    if not isinstance(data, dict):
+                        raise ValueError
+                except Exception:
+                    self._send(400, b'{"ok":false,"err":"bad request"}')
+                    return
+                # 只投递队列，由主线程 tick 应用（tkinter 只能在主线程操作）
+                try:
+                    self.app.push_web_config(data)
+                except Exception:
+                    pass
+                self._send(200, b'{"ok":true}')
+
+        try:
+            self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+            _Handler.app = self
+            self._http_port = self._httpd.server_address[1]
+            threading.Thread(target=self._httpd.serve_forever, daemon=True).start()
+        except Exception:
+            self._httpd = None
+            self._http_port = 0
+
+    def open_web_settings(self):
+        if self._httpd is None or self._http_port <= 0:
+            self.start_web_settings()
+        if self._http_port <= 0:
+            messagebox.showwarning("设置", "无法启动本地设置服务，请从源码目录检查环境。")
+            return
+        try:
+            webbrowser.open(f"http://127.0.0.1:{self._http_port}/")
+        except Exception:
+            pass
+
+    def settings_html(self):
+        p = os.path.join(APP_DIR, "settings.html")
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return ("<!doctype html><meta charset='utf-8'>"
+                    "<body style='background:#0e2a63;color:#fff;font-family:sans-serif;"
+                    "padding:40px'><h1>设置页</h1>"
+                    "<p>未找到 settings.html，请确认它与主程序在同一目录。</p></body>")
+
+    def push_web_config(self, data: dict):
+        """HTTP 线程投递配置到队列（主线程 tick 消费）。"""
+        try:
+            self._web_pending.append(data)
+        except Exception:
+            pass
+
+    def _drain_web_config(self):
+        """主线程消费队列中的网页配置。"""
+        while self._web_pending:
+            data = self._web_pending.pop(0)
+            try:
+                self.apply_web_config(data)
+            except Exception:
+                pass
+
+    def web_config_snapshot(self) -> dict:
+        # 注意：此方法在 HTTP 工作线程执行，禁止直接调用 tkinter（如 attributes），
+        # 置顶状态从 self.cfg 读取（由主线程 toggle_topmost/apply_web_config 维护）。
+        return {
+            "topmost": bool(self.cfg.get("topmost", True)),
+            "rotate_seconds": int(self.cfg.get("rotate_seconds", DEFAULT_ROTATE_SECONDS)),
+            "sub_warn_days": int(self.cfg.get("sub_warn_days", DEFAULT_WARN_DAYS)),
+            "ds_sound": bool(self.cfg.get("ds_sound", False)),
+            "gpt_sound": bool(self.cfg.get("gpt_sound", False)),
+            "sound_kind": self.cfg.get("sound_kind", "meizu"),
+            "deepseek_api_key": self.cfg.get("deepseek_api_key", ""),
+            "autostart": _autostart_enabled(),
+            "gpt_reset_hours": self.counter.window_h,
+            "gpt_auto_send": bool(self.cfg.get("gpt_auto_send", False)),
+            "gpt_renew_day": int(self.cfg.get("gpt_renew_day", 5) or 5),
+            "gpt_reset_ts": self.counter.reset_ts,
+            "gpt_week_reset_ts": self.week_counter.reset_ts,
+            "ds_override": self.override,
+            "subscriptions": self.cfg.get("subscriptions", []),
+            "price_table": PRICES,
+            "peak_rule": ("高峰：北京时间 周一至周五 09:00-12:00、14:00-18:00；"
+                          "其余时间（含周末/节假日）为闲时，价格约为高峰一半"),
+            "presets": SUB_PRESETS,
+            "sound_labels": SOUND_LABELS,
+            "sounds": SOUND_KINDS,
+        }
+
+    def apply_web_config(self, data: dict):
+        """网页 POST 来的配置：校验并应用到运行中的小组件。"""
+        if not isinstance(data, dict):
+            return
+        c = self.cfg
+        # --- 通用 ---
+        if "rotate_seconds" in data:
+            try:
+                c["rotate_seconds"] = max(10, min(3600, int(data["rotate_seconds"])))
+            except Exception:
+                pass
+        if "sub_warn_days" in data:
+            try:
+                c["sub_warn_days"] = max(0, min(30, int(data["sub_warn_days"])))
+            except Exception:
+                pass
+        if "topmost" in data:
+            self.attributes("-topmost", bool(data["topmost"]))
+            c["topmost"] = bool(data["topmost"])
+        if "autostart" in data:
+            _set_autostart(bool(data["autostart"]))
+        # --- 声音 ---
+        if "ds_sound" in data:
+            c["ds_sound"] = bool(data["ds_sound"])
+        if "gpt_sound" in data:
+            c["gpt_sound"] = bool(data["gpt_sound"])
+        if "sound_kind" in data and data["sound_kind"] in SOUND_KINDS:
+            c["sound_kind"] = data["sound_kind"]
+        if "gpt_auto_send" in data:
+            c["gpt_auto_send"] = bool(data["gpt_auto_send"])
+        if "gpt_renew_day" in data:
+            try:
+                c["gpt_renew_day"] = max(1, min(31, int(data["gpt_renew_day"])))
+            except Exception:
+                pass
+        # --- ChatGPT 窗口周期 / 重置锚点 ---
+        if "gpt_reset_hours" in data:
+            try:
+                self.counter.window_h = max(0.5, float(data["gpt_reset_hours"]))
+                self.counter.window_s = self.counter.window_h * 3600.0
+                if self.counter.reset_ts is not None:
+                    self.counter.last = self.counter.reset_ts - self.counter.window_s
+            except Exception:
+                pass
+        if "gpt_reset_ts" in data:
+            if data["gpt_reset_ts"]:
+                try:
+                    self.counter.set_reset(float(data["gpt_reset_ts"]))
+                except Exception:
+                    pass
+            else:
+                self.counter.clear_reset()
+        if "gpt_week_reset_ts" in data:
+            if data["gpt_week_reset_ts"]:
+                try:
+                    self.week_counter.set_reset(float(data["gpt_week_reset_ts"]))
+                except Exception:
+                    pass
+            else:
+                self.week_counter.clear_reset()
+        # --- 节假日覆盖 ---
+        if "ds_override" in data:
+            self.override = data["ds_override"] if isinstance(data["ds_override"], dict) else None
+        # --- DeepSeek API Key ---
+        if "deepseek_api_key" in data:
+            key = str(data["deepseek_api_key"]).strip()
+            if key:
+                c["deepseek_api_key"] = key
+            else:
+                c.pop("deepseek_api_key", None)
+            self._balance = None
+            self._balance_fetched_at = 0.0
+        # --- 订阅 ---
+        if "subscriptions" in data and isinstance(data["subscriptions"], list):
+            subs = []
+            for s in data["subscriptions"]:
+                if not isinstance(s, dict):
+                    continue
+                name = str(s.get("name", "")).strip()[:20] or "订阅"
+                item = {"name": name,
+                        "enabled": bool(s.get("enabled", True)),
+                        "color": str(s.get("color", "#7ec8ff"))}
+                ed = str(s.get("expire_date", "")).strip()
+                if ed:
+                    try:
+                        datetime.strptime(ed, "%Y-%m-%d")
+                        item["expire_date"] = ed
+                    except Exception:
+                        ed = ""
+                if not ed:
+                    try:
+                        item["renew_day"] = max(1, min(31, int(s.get("renew_day", 1))))
+                    except Exception:
+                        item["renew_day"] = 1
+                subs.append(item)
+            c["subscriptions"] = subs
+
+        self.save_cfg()
+        self.rebuild_pages()      # 页面数量/内容可能变化
+        self.tick()
+        self._paint_pin()
 
     # ---------- DeepSeek 余额查询（官方 /user/balance 接口） ----------
     def _fetch_balance_http(self):
@@ -1003,27 +1432,6 @@ class Widget(tk.Tk):
         else:
             self._balance_fetched_at = 0.0   # 失败立即允许重试（但受 60s 最小间隔保护）
         self.tick()
-
-    def set_deepseek_api_key(self):
-        cur = self.cfg.get("deepseek_api_key", "")
-        v = simpledialog.askstring(
-            "DeepSeek API Key",
-            "在 platform.deepseek.com → API Keys 创建并复制 Key：\n"
-            "（保存在本地 config.json，仅用于查询余额）"
-            + (f"\n\n当前已设置：{cur[:6]}…（留空可清除）" if cur else ""),
-            parent=self, show="*")
-        if v is None:
-            return
-        v = v.strip()
-        if v:
-            self.cfg["deepseek_api_key"] = v
-        else:
-            self.cfg.pop("deepseek_api_key", None)
-        self._balance = None
-        self._balance_fetched_at = 0.0
-        self.save_cfg()
-        self.tick()
-        self._paint_small_btns()
 
     # ---------- 自动发送「继续任务」到 ChatGPT 桌面端 ----------
     def _find_chatgpt_window(self):
@@ -1079,10 +1487,63 @@ class Widget(tk.Tk):
             return False
 
     # ---------- 每秒刷新 ----------
+    def _has_warn_sub(self) -> bool:
+        """是否存在处于「到期前 N 天」提醒窗口内的订阅或 ChatGPT 续费（含已过期，需提醒处理）。"""
+        warn_days = int(self.cfg.get("sub_warn_days", DEFAULT_WARN_DAYS))
+        today = datetime.now().date()
+        if any(sub_status(s, today)[0] <= warn_days
+               for s in self._enabled_subs()):
+            return True
+        gd = int(self.cfg.get("gpt_renew_day", 5) or 5)
+        return (next_renew_date(gd, today) - today).days <= warn_days
+
     def tick(self):
-        if self.page != "main":
-            self.after(1000, self.tick)
-            return
+        now = time.time()
+        # --- 应用网页设置（主线程） ---
+        self._drain_web_config()
+        # --- 页面轮播：每隔 rotate_seconds 秒自动切到下一页 ---
+        if (self._page_count > 1 and
+                now - self._last_switch >= float(self.cfg.get("rotate_seconds",
+                                                              DEFAULT_ROTATE_SECONDS))):
+            self._last_switch = now
+            self.next_page()
+        # --- 红字闪烁：每 3 秒切换红/浅红 ---
+        if self._has_warn_sub() and now - self._last_flash >= FLASH_SECONDS:
+            self._flash_on = not self._flash_on
+            self._last_flash = now
+        self._paint_current()
+        self.after(1000, self.tick)
+
+    def _paint_current(self):
+        if self.page_idx == 0:
+            self._paint_main()
+        else:
+            self._paint_sub_page()
+        self._paint_page_indicator()
+
+    def _paint_sub_page(self):
+        today = datetime.now().date()
+        warn_days = int(self.cfg.get("sub_warn_days", DEFAULT_WARN_DAYS))
+        cv = self.canvas
+        for it in self._sub_dynamic:
+            s = it["sub"]
+            days, nxt = sub_status(s, today)
+            warn = days <= warn_days
+            fill = (WARN_RED_LIGHT if self._flash_on else WARN_RED) if warn else FG_W
+            if days > 0:
+                text = f"剩 {days} 天"
+            elif days == 0:
+                text = "今天到期"
+            else:
+                text = "已到期"
+            if s.get("expire_date"):
+                subtext = f"到期日 {nxt.month}月{nxt.day}日"
+            else:
+                subtext = f"下次续费 {nxt.month}月{nxt.day}日"
+            cv.itemconfig(it["big"], text=text, fill=fill)
+            cv.itemconfig(it["subtext"], text=subtext)
+
+    def _paint_main(self):
         now = datetime.now()
         now_ts = now.timestamp()
         cv = self.canvas
@@ -1185,7 +1646,19 @@ class Widget(tk.Tk):
         if wst.get("rolled"):
             self.save_cfg()          # 持久化新的周重置锚点
 
-        self.after(1000, self.tick)
+        # --- ChatGPT 每月续费倒计时（到期提醒，可红闪） ---
+        gd = int(self.cfg.get("gpt_renew_day", 5) or 5)
+        g_nxt = next_renew_date(gd, now.date())
+        g_days = (g_nxt - now.date()).days
+        warn_days = int(self.cfg.get("sub_warn_days", DEFAULT_WARN_DAYS))
+        if g_days > warn_days:
+            cv.itemconfig(self.gpt_sub, text=f"每月{gd}日续费 · 下次 {g_nxt.month}月{g_nxt.day}日",
+                          fill=FG_DIM)
+        elif g_days == 0:
+            cv.itemconfig(self.gpt_sub, text="今天续费", fill=WARN_RED)
+        else:
+            cv.itemconfig(self.gpt_sub, text=f"续费提醒 剩 {g_days} 天",
+                          fill=WARN_RED_LIGHT if self._flash_on else WARN_RED)
 
     # ---------- 自检 ----------
     def selftest_report(self) -> str:
@@ -1234,22 +1707,101 @@ class Widget(tk.Tk):
         lines.append(f"[selftest] sounds ds={self.cfg.get('ds_sound')} "
                      f"gpt={self.cfg.get('gpt_sound')} kind={self.cfg.get('sound_kind','system')} "
                      f"auto_send={self.cfg.get('gpt_auto_send', False)}")
+
+        # --- 订阅逻辑自检 ---
+        d0 = date_obj.today()
+        r1 = next_renew_date(1, d0)
+        lines.append(f"[selftest] sub: renew_day=1 -> 下次 {r1:%Y-%m-%d} "
+                     f"剩 {sub_status({'renew_day': 1}, d0)[0]} 天 (expect >=0) "
+                     f"{'OK' if sub_status({'renew_day': 1}, d0)[0] >= 0 else 'FAIL'}")
+        feb = date_obj(2026, 2, 10)
+        got_clamp = next_renew_date(31, feb)
+        ok_clamp = got_clamp == date_obj(2026, 2, 28)
+        lines.append(f"[selftest] sub: 2月31日截断 -> {got_clamp:%Y-%m-%d} "
+                     f"{'OK' if ok_clamp else 'FAIL'}")
+        same = next_renew_date(10, date_obj(2026, 9, 10))
+        lines.append(f"[selftest] sub: 续费日当天 -> {same:%Y-%m-%d} 剩 0 天 "
+                     f"{'OK' if same == date_obj(2026, 9, 10) else 'FAIL'}")
+        d_fix = date_obj(2026, 9, 22)
+        d_fix_ok = sub_status({"expire_date": "2026-09-25"}, d_fix) == (3, date_obj(2026, 9, 25))
+        lines.append(f"[selftest] sub: 固定日期 09-25 剩 {sub_status({'expire_date': '2026-09-25'}, d_fix)[0]} 天 "
+                     f"(expect 3) {'OK' if d_fix_ok else 'FAIL'}")
+        d_exp_ok = sub_status({"expire_date": "2026-09-20"}, d_fix)[0] == -2
+        lines.append(f"[selftest] sub: 已过期 -> {sub_status({'expire_date': '2026-09-20'}, d_fix)[0]} 天 "
+                     f"(expect -2) {'OK' if d_exp_ok else 'FAIL'}")
+        n_subs = len(self._enabled_subs())
+        n_pages = max(0, (n_subs + SUB_PER_PAGE - 1) // SUB_PER_PAGE)
+        lines.append(f"[selftest] sub: 启用订阅 {n_subs} 个 -> 订阅页 {n_pages} 页 "
+                     f"(总页数 {self._page_count})")
+        gd = int(self.cfg.get("gpt_renew_day", 5) or 5)
+        g_nxt = next_renew_date(gd, d0)
+        lines.append(f"[selftest] gpt_renew: 每月 {gd} 日 -> 下次 {g_nxt:%Y-%m-%d} "
+                     f"剩 {(g_nxt - d0).days} 天")
+        lines.append(f"[selftest] nav: prev={len(self._nav_prev)} "
+                     f"next={len(self._nav_next)} "
+                     f"nums={sum(len(v) for v in self._nav_nums.values())} "
+                     f"expect={self._page_count}")
+
         win = self._find_chatgpt_window()
         lines.append(f"[selftest] chatgpt window found: {len(win)} "
                      f"(selftest 不发送文本)")
         lines.append(f"[selftest] UI OK {self.winfo_width()}x{self.winfo_height()} "
                      f"bg={self._bg_img.width()}x{self._bg_img.height()}")
-        lines.append(f"[selftest] settings page has price table + sound switches")
+        lines.append(f"[selftest] web settings port={self._http_port} "
+                     f"started={self._httpd is not None}")
+        lines.append(f"[selftest] pages={self._page_count} current={self.page_idx} "
+                     f"warn_days={self.cfg.get('sub_warn_days')} "
+                     f"rotate={self.cfg.get('rotate_seconds')}s "
+                     f"gpt_renew_day={self.cfg.get('gpt_renew_day', 5)}")
         return "\n".join(lines)
+
+    # ---------- 预览截图（验证用） ----------
+    def start_preview(self, outdir: str):
+        try:
+            os.makedirs(outdir, exist_ok=True)
+        except Exception:
+            pass
+        self._preview_out = outdir
+        self._preview_queue = list(range(self._page_count))
+        self.after(900, self._preview_capture)
+
+    def _preview_capture(self):
+        try:
+            import PIL.ImageGrab as ImageGrab
+            self.show_page(self.page_idx)
+            self._paint_current()
+            self.update_idletasks()
+            self.update()
+            x, y = self.winfo_rootx(), self.winfo_rooty()
+            img = ImageGrab.grab(bbox=(int(x), int(y),
+                                       int(x) + int(DESIGN_W * UI_SCALE),
+                                       int(y) + int(DESIGN_H * UI_SCALE_H)))
+            img.save(os.path.join(self._preview_out, f"page{self.page_idx}.png"))
+            self._preview_queue.pop(0)
+        except Exception as e:
+            print("preview error:", e, flush=True)
+            self.destroy()
+            return
+        if self._preview_queue:
+            self.next_page()
+            self.after(500, self._preview_capture)
+        else:
+            self.destroy()
 
 
 def main():
+    argv = sys.argv
     app = Widget()
-    if "--selftest" in sys.argv:
+    if "--selftest" in argv:
         def _report():
             print(app.selftest_report(), flush=True)
             app.destroy()
         app.after(1500, _report)
+    elif "--preview" in argv:
+        outdir = "preview"
+        if len(argv) > argv.index("--preview") + 1:
+            outdir = argv[argv.index("--preview") + 1]
+        app.start_preview(outdir)
     app.mainloop()
 
 
