@@ -1006,6 +1006,12 @@ class Widget(tk.Tk):
         """重建全部页面（启动时 / 设置变化后）。"""
         cv = self.canvas
         cv.delete("all")
+        self._pin_bg_off = self._pill(66, 20, (255, 255, 255), 38)
+        self._pin_bg_on = self._pill(66, 20, (188, 217, 255), 88)
+        self._pin_bg_hover = self._pill(66, 20, (255, 255, 255), 88)
+        self._zoom_bg_off = self._pill(38, 20, (255, 255, 255), 38)
+        self._zoom_bg_on = self._pill(38, 20, (188, 217, 255), 88)
+        self._zoom_bg_hover = self._pill(38, 20, (255, 255, 255), 88)
         self._bg_img = ImageTk.PhotoImage(
             make_gradient(int(DESIGN_W * UI_SCALE * self._zoom),
                           int(DESIGN_H * UI_SCALE_H * self._zoom),
@@ -1035,6 +1041,16 @@ class Widget(tk.Tk):
         self.show_page(self.page_idx)
         self._paint_pin()
         self._scale_ui()
+
+    def _pill(self, w_d, h_d, color, alpha):
+        """生成半透明圆角胶囊按钮底图（按有效缩放换算实际像素）。"""
+        w = max(2, int(w_d * UI_SCALE * self._zoom))
+        h = max(2, int(h_d * UI_SCALE * self._zoom))
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle([0, 0, w - 1, h - 1], radius=max(2, h // 2),
+                            fill=color + (alpha,))
+        return ImageTk.PhotoImage(img)
 
     def _scale_ui(self):
         """把整界面按缩放系数变换；scale 不改文字字号/图片尺寸，字号按宽度系数单独缩放。"""
@@ -1142,9 +1158,13 @@ class Widget(tk.Tk):
                        fill=FG_DIM, font=(FONT, 8), tags=PG0)
         cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                        font=(FONT, 11), tags=(PG0, "close"))
+        cv.create_image(R - 110, 26, image=self._pin_bg_off, anchor="center",
+                        tags=(PG0, "pinbg"))
         self.pin_btn = cv.create_text(R - 88, 26, text="", anchor="e",
                                       fill=ACC_C, font=(FONT, 8), tags=(PG0, "pin"))
-        cv.create_text(R - 148, 26, text="1×", anchor="e", fill=FG_DIM,
+        cv.create_image(R - 187, 26, image=self._zoom_bg_off, anchor="center",
+                        tags=(PG0, "zoombg"))
+        cv.create_text(R - 174, 26, text="1×", anchor="e", fill=FG_DIM,
                        font=(FONT, 8), tags=(PG0, "zoom"))
 
         # ---- DeepSeek 区块 ----
@@ -1214,9 +1234,13 @@ class Widget(tk.Tk):
             tag0 = "pg%d" % pg
             cv.create_text(PAD, 26, text="订阅到期提醒", anchor="w",
                            fill=FG_DIM, font=(FONT, 8), tags=tag0)
+            cv.create_image(R - 110, 26, image=self._pin_bg_off, anchor="center",
+                            tags=(tag0, "pinbg"))
             cv.create_text(R - 88, 26, text="", anchor="e", fill=ACC_C,
                            font=(FONT, 8), tags=(tag0, "pin"))
-            cv.create_text(R - 148, 26, text="1×", anchor="e", fill=FG_DIM,
+            cv.create_image(R - 187, 26, image=self._zoom_bg_off, anchor="center",
+                            tags=(tag0, "zoombg"))
+            cv.create_text(R - 174, 26, text="1×", anchor="e", fill=FG_DIM,
                            font=(FONT, 8), tags=(tag0, "zoom"))
             cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                            font=(FONT, 11), tags=(tag0, "close"))
@@ -1265,9 +1289,13 @@ class Widget(tk.Tk):
             tag0 = "pg%d" % pg
             cv.create_text(PAD, 26, text="API 额度 / 订阅", anchor="w",
                            fill=FG_DIM, font=(FONT, 8), tags=tag0)
+            cv.create_image(R - 110, 26, image=self._pin_bg_off, anchor="center",
+                            tags=(tag0, "pinbg"))
             cv.create_text(R - 88, 26, text="", anchor="e", fill=ACC_C,
                            font=(FONT, 8), tags=(tag0, "pin"))
-            cv.create_text(R - 148, 26, text="1×", anchor="e", fill=FG_DIM,
+            cv.create_image(R - 187, 26, image=self._zoom_bg_off, anchor="center",
+                            tags=(tag0, "zoombg"))
+            cv.create_text(R - 174, 26, text="1×", anchor="e", fill=FG_DIM,
                            font=(FONT, 8), tags=(tag0, "zoom"))
             cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                            font=(FONT, 11), tags=(tag0, "close"))
@@ -1313,9 +1341,11 @@ class Widget(tk.Tk):
         cv = self.canvas
         cv.tag_bind("close", "<Button-1>", lambda e: self._hide_to_tray())
         cv.tag_bind("pin", "<Button-1>", lambda e: self.toggle_topmost())
+        cv.tag_bind("pin", "<Enter>", lambda e: self._paint_pin(True))
+        cv.tag_bind("pin", "<Leave>", lambda e: self._paint_pin(False))
         cv.tag_bind("zoom", "<Button-1>", lambda e: self.toggle_zoom())
-        cv.tag_bind("zoom", "<Enter>", lambda e: cv.itemconfig("zoom", fill=FG_W))
-        cv.tag_bind("zoom", "<Leave>", lambda e: self._paint_zoom_btn())
+        cv.tag_bind("zoom", "<Enter>", lambda e: self._paint_zoom_btn(True))
+        cv.tag_bind("zoom", "<Leave>", lambda e: self._paint_zoom_btn(False))
         cv.tag_bind("gear", "<Button-1>", lambda e: self.open_web_settings())
         cv.tag_bind("prev", "<Button-1>", lambda e: self.prev_page())
         cv.tag_bind("next", "<Button-1>", lambda e: self.next_page())
@@ -1491,10 +1521,15 @@ class Widget(tk.Tk):
         self._paint_pin()
         self.save_cfg()
 
-    def _paint_pin(self):
+    def _paint_pin(self, hover=False):
         top = bool(self.attributes("-topmost"))
         self.canvas.itemconfig("pin", text="置顶：" + ("开" if top else "关"),
                                fill=ACC_C if top else FG_DIM)
+        if hover and not top:
+            self.canvas.itemconfig("pinbg", image=self._pin_bg_hover)
+        else:
+            self.canvas.itemconfig("pinbg",
+                                   image=self._pin_bg_on if top else self._pin_bg_off)
 
     # ---------- UI 缩放（1× / 1.5×） ----------
     def toggle_zoom(self):
@@ -1502,11 +1537,16 @@ class Widget(tk.Tk):
         self._apply_zoom()
         self.save_cfg()
 
-    def _paint_zoom_btn(self):
+    def _paint_zoom_btn(self, hover=False):
         big = abs(self._zoom - 1.0) > 1e-9
         self.canvas.itemconfig(
             "zoom", text=("1.5×" if big else "1×"),
             fill=ACC_C if big else FG_DIM)
+        if hover and not big:
+            self.canvas.itemconfig("zoombg", image=self._zoom_bg_hover)
+        else:
+            self.canvas.itemconfig("zoombg",
+                                   image=self._zoom_bg_on if big else self._zoom_bg_off)
 
     def _apply_zoom(self):
         """按 self._zoom 重建窗口（基坐标重绘 + 整体缩放 + 位图按有效缩放生成）。"""
