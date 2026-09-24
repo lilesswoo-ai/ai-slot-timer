@@ -900,8 +900,8 @@ class Widget(tk.Tk):
         num_w = 13
         tri_w = 12
         total_w = tri_w + self._page_count * num_w + tri_w
-        # 右边缘停在「置顶:开」文本（锚点 R-88）左侧约 50px，避免与置顶文字重叠
-        x0 = (R - 96) - total_w - 52
+        # 导航组在标题栏水平居中（置顶开关固定在右上角，不会重叠）
+        x0 = (DESIGN_W - total_w) // 2
         for pg in range(self._page_count):
             tag0 = "pg%d" % pg
             self._nav_prev[pg] = cv.create_polygon(
@@ -993,9 +993,9 @@ class Widget(tk.Tk):
         # 底部：提示 + 右下角设置
         cv.create_text(PAD, 384, text="右键：菜单 · 拖拽移动 · × 隐藏到托盘",
                        anchor="w", fill=FG_DIM, font=(FONT, 8), tags=PG0)
-        cv.create_image(R - 44, 372, image=self._gear_img, anchor="center",
+        cv.create_image(R - 44, 378, image=self._gear_img, anchor="center",
                         tags=(PG0, "gear"))
-        cv.create_text(R - 28, 372, text="设置", anchor="w", fill=FG_DIM,
+        cv.create_text(R - 28, 378, text="设置", anchor="w", fill=FG_DIM,
                        font=(FONT, 7), tags=(PG0, "gear"))
 
     # ---------- 订阅页（第 1..N 页） ----------
@@ -1008,11 +1008,13 @@ class Widget(tk.Tk):
             tag0 = "pg%d" % pg
             cv.create_text(PAD, 26, text="订阅到期提醒", anchor="w",
                            fill=FG_DIM, font=(FONT, 8), tags=tag0)
+            cv.create_text(R - 88, 26, text="", anchor="e", fill=ACC_C,
+                           font=(FONT, 8), tags=(tag0, "pin"))
             cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                            font=(FONT, 11), tags=(tag0, "close"))
-            cv.create_image(R - 44, 372, image=self._gear_img, anchor="center",
+            cv.create_image(R - 44, 378, image=self._gear_img, anchor="center",
                             tags=(tag0, "gear"))
-            cv.create_text(R - 28, 372, text="设置", anchor="w", fill=FG_DIM,
+            cv.create_text(R - 28, 378, text="设置", anchor="w", fill=FG_DIM,
                            font=(FONT, 7), tags=(tag0, "gear"))
             cv.create_text(PAD, 384,
                            text=f"右键：菜单 · 到期前 {warn_days} 天红字提醒 · × 隐藏到托盘",
@@ -1046,13 +1048,6 @@ class Widget(tk.Tk):
                                      fill=FG_DIM, font=(FONT, 9), tags=tag0)
                 self._sub_dynamic.append({"sub": s, "big": big, "subtext": sub})
 
-        # 没有任何启用订阅时的占位提示（只建一页提示，不占轮播）
-        if not subs:
-            cv.create_text(DESIGN_W // 2, 200, anchor="center",
-                           text="暂无订阅到期提醒\n点击右下角「设置」添加（内置 即梦 / Running Hub 等预设）",
-                           fill=FG_DIM, font=(FONT, 12), justify="center",
-                           tags="pg1")
-
     def _build_api_pages(self, apis, api_pages):
         """API 额度/订阅页：排在订阅到期提醒页之后（页序 0=主界面，1..订阅，其后=API）。"""
         cv = self.canvas
@@ -1062,11 +1057,13 @@ class Widget(tk.Tk):
             tag0 = "pg%d" % pg
             cv.create_text(PAD, 26, text="API 额度 / 订阅", anchor="w",
                            fill=FG_DIM, font=(FONT, 8), tags=tag0)
+            cv.create_text(R - 88, 26, text="", anchor="e", fill=ACC_C,
+                           font=(FONT, 8), tags=(tag0, "pin"))
             cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                            font=(FONT, 11), tags=(tag0, "close"))
-            cv.create_image(R - 44, 372, image=self._gear_img, anchor="center",
+            cv.create_image(R - 44, 378, image=self._gear_img, anchor="center",
                             tags=(tag0, "gear"))
-            cv.create_text(R - 28, 372, text="设置", anchor="w", fill=FG_DIM,
+            cv.create_text(R - 28, 378, text="设置", anchor="w", fill=FG_DIM,
                            font=(FONT, 7), tags=(tag0, "gear"))
             cv.create_text(PAD, 384,
                            text="右键：菜单 · 自动查询余额 · 无查询接口的平台显示「控制台查看」",
@@ -1100,12 +1097,6 @@ class Widget(tk.Tk):
                                          fill=FG_DIM, font=(FONT, 9), tags=tag0)
                 self._api_dynamic.append({"sub": s, "big": big, "subtext": subtext})
 
-        # 没有任何启用 API 订阅时的占位提示（不可达，仅对齐订阅页行为）
-        if not apis:
-            cv.create_text(DESIGN_W // 2, 200, anchor="center",
-                           text="暂无 API 订阅\n点击右下角「设置」添加（内置 硅基流动 / MiniMax / 火山引擎 等模板）",
-                           fill=FG_DIM, font=(FONT, 12), justify="center",
-                           tags="pg%d" % (self._sub_pages + 1))
 
     # ---------- 页面事件绑定（删除重建后重新绑定） ----------
     def _bind_page_events(self):
