@@ -1006,6 +1006,7 @@ class Widget(tk.Tk):
         """重建全部页面（启动时 / 设置变化后）。"""
         cv = self.canvas
         cv.delete("all")
+        self._layout_top()
         self._pin_bg_off = self._pill(66, 20, (255, 255, 255), 38)
         self._pin_bg_on = self._pill(66, 20, (188, 217, 255), 88)
         self._pin_bg_hover = self._pill(66, 20, (255, 255, 255), 88)
@@ -1112,6 +1113,17 @@ class Widget(tk.Tk):
         except Exception:
             pass
 
+    def _layout_top(self):
+        """标题栏三组（页码导航 / 1x 缩放 / 置顶）整体水平居中，与左右两边等距；× 固定右上角。"""
+        num_w, tri_w = 13, 12
+        zoom_w, pin_w, gap = 38, 66, 12
+        nav_w = tri_w + max(1, self._page_count) * num_w + tri_w
+        total = nav_w + zoom_w + pin_w + gap * 2
+        start = (DESIGN_W - total) // 2
+        self._nav_x0 = start
+        self._zoom_x = start + nav_w + gap       # 1x 段左端
+        self._pin_x = self._zoom_x + zoom_w + gap  # 置顶段左端
+
     def _build_page_nav(self):
         """每页标题栏画 ◀ 页码1..N ▶：左/右实心三角 + 中间全部页码数字（当前页高亮）。"""
         cv = self.canvas
@@ -1120,8 +1132,8 @@ class Widget(tk.Tk):
         num_w = 13
         tri_w = 12
         total_w = tri_w + self._page_count * num_w + tri_w
-        # 导航组在标题栏水平居中（置顶开关固定在右上角，不会重叠）
-        x0 = (DESIGN_W - total_w) // 2
+        # 导航组随 1x/置顶 一起整体水平居中（见 _layout_top）
+        x0 = self._nav_x0
         for pg in range(self._page_count):
             tag0 = "pg%d" % pg
             self._nav_prev[pg] = cv.create_polygon(
@@ -1158,13 +1170,13 @@ class Widget(tk.Tk):
                        fill=FG_DIM, font=(FONT, 8), tags=PG0)
         cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                        font=(FONT, 11), tags=(PG0, "close"))
-        cv.create_image(R - 110, 26, image=self._pin_bg_off, anchor="center",
+        cv.create_image(self._pin_x + 33, 26, image=self._pin_bg_off, anchor="center",
                         tags=(PG0, "pinbg"))
-        self.pin_btn = cv.create_text(R - 88, 26, text="", anchor="e",
+        self.pin_btn = cv.create_text(self._pin_x + 57, 26, text="", anchor="e",
                                       fill=ACC_C, font=(FONT, 8), tags=(PG0, "pin"))
-        cv.create_image(R - 187, 26, image=self._zoom_bg_off, anchor="center",
+        cv.create_image(self._zoom_x + 19, 26, image=self._zoom_bg_off, anchor="center",
                         tags=(PG0, "zoombg"))
-        cv.create_text(R - 174, 26, text="1×", anchor="e", fill=FG_DIM,
+        cv.create_text(self._zoom_x + 32, 26, text="1×", anchor="e", fill=FG_DIM,
                        font=(FONT, 8), tags=(PG0, "zoom"))
 
         # ---- DeepSeek 区块 ----
@@ -1234,13 +1246,13 @@ class Widget(tk.Tk):
             tag0 = "pg%d" % pg
             cv.create_text(PAD, 26, text="订阅到期提醒", anchor="w",
                            fill=FG_DIM, font=(FONT, 8), tags=tag0)
-            cv.create_image(R - 110, 26, image=self._pin_bg_off, anchor="center",
+            cv.create_image(self._pin_x + 33, 26, image=self._pin_bg_off, anchor="center",
                             tags=(tag0, "pinbg"))
-            cv.create_text(R - 88, 26, text="", anchor="e", fill=ACC_C,
+            cv.create_text(self._pin_x + 57, 26, text="", anchor="e", fill=ACC_C,
                            font=(FONT, 8), tags=(tag0, "pin"))
-            cv.create_image(R - 187, 26, image=self._zoom_bg_off, anchor="center",
+            cv.create_image(self._zoom_x + 19, 26, image=self._zoom_bg_off, anchor="center",
                             tags=(tag0, "zoombg"))
-            cv.create_text(R - 174, 26, text="1×", anchor="e", fill=FG_DIM,
+            cv.create_text(self._zoom_x + 32, 26, text="1×", anchor="e", fill=FG_DIM,
                            font=(FONT, 8), tags=(tag0, "zoom"))
             cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                            font=(FONT, 11), tags=(tag0, "close"))
@@ -1289,13 +1301,13 @@ class Widget(tk.Tk):
             tag0 = "pg%d" % pg
             cv.create_text(PAD, 26, text="API 额度 / 订阅", anchor="w",
                            fill=FG_DIM, font=(FONT, 8), tags=tag0)
-            cv.create_image(R - 110, 26, image=self._pin_bg_off, anchor="center",
+            cv.create_image(self._pin_x + 33, 26, image=self._pin_bg_off, anchor="center",
                             tags=(tag0, "pinbg"))
-            cv.create_text(R - 88, 26, text="", anchor="e", fill=ACC_C,
+            cv.create_text(self._pin_x + 57, 26, text="", anchor="e", fill=ACC_C,
                            font=(FONT, 8), tags=(tag0, "pin"))
-            cv.create_image(R - 187, 26, image=self._zoom_bg_off, anchor="center",
+            cv.create_image(self._zoom_x + 19, 26, image=self._zoom_bg_off, anchor="center",
                             tags=(tag0, "zoombg"))
-            cv.create_text(R - 174, 26, text="1×", anchor="e", fill=FG_DIM,
+            cv.create_text(self._zoom_x + 32, 26, text="1×", anchor="e", fill=FG_DIM,
                            font=(FONT, 8), tags=(tag0, "zoom"))
             cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                            font=(FONT, 11), tags=(tag0, "close"))

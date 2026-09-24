@@ -1,7 +1,7 @@
 ﻿; 发条AI时段小组件 安装脚本 (Inno Setup 7)
 [Setup]
 AppName=发条AI时段小组件
-AppVersion=1.1.5
+AppVersion=1.1.6
 AppPublisher=发条AI
 AppId={{8F4E3D2C-1A2B-4C3D-9E8F-0A1B2C3D4E5F}
 DefaultDirName={localappdata}\发条AI时段小组件
@@ -10,7 +10,7 @@ DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\app.ico
 SetupIconFile=assets\deepseek_3.ico
 OutputDir=.
-OutputBaseFilename=ai-slot-timer-setup-1.1.5
+OutputBaseFilename=ai-slot-timer-setup-1.1.6
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
