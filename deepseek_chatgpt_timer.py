@@ -40,9 +40,11 @@ import math
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
+from ctypes import wintypes
 from datetime import datetime, timedelta, date as date_obj
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
@@ -287,6 +289,214 @@ def make_gradient(w: int, h: int, c1, c2) -> Image.Image:
         color = tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
         d.line([(0, y), (w, y)], fill=color)
     return img
+
+
+# ---------------- Win32 托盘图标（Shell_NotifyIcon，无第三方依赖） ----------------
+_WM_TRAYICON = 0x0400 + 20
+_WM_COMMAND = 0x0111
+_WM_LBUTTONUP = 0x0202
+_WM_RBUTTONUP = 0x0205
+_NIM_ADD = 0x00000000
+_NIM_DELETE = 0x00000002
+_NIF_MESSAGE = 0x00000001
+_NIF_ICON = 0x00000002
+_NIF_TIP = 0x00000004
+_IMAGE_ICON = 1
+_LR_LOADFROMFILE = 0x00000010
+_MF_STRING = 0x00000000
+_TPM_RIGHTBUTTON = 0x0002
+_CMD_SHOW = 1
+_CMD_QUIT = 2
+
+
+class _NOTIFYICONDATAW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("hWnd", wintypes.HWND),
+        ("uID", wintypes.UINT),
+        ("uFlags", wintypes.UINT),
+        ("uCallbackMessage", wintypes.UINT),
+        ("hIcon", wintypes.HICON),
+        ("szTip", ctypes.c_wchar * 128),
+        ("dwState", wintypes.DWORD),
+        ("dwStateMask", wintypes.DWORD),
+        ("szInfo", ctypes.c_wchar * 256),
+        ("uVersion", wintypes.UINT),
+        ("szInfoTitle", ctypes.c_wchar * 64),
+        ("dwInfoFlags", wintypes.DWORD),
+    ]
+
+
+class WinTray:
+    """纯 Win32 系统托盘图标：左键单击切换窗口显示/隐藏，右键菜单含「显示 / 隐藏」「退出」。"""
+
+    _WNDCLASS = "TkAiTrayWnd2026"
+
+    def __init__(self, app):
+        self._app = app
+        self._hwnd = None
+        self._hicon = None
+        self._tid = None
+        self._alive = True
+        self._wndproc = None
+
+    def _wnd_proc(self, hwnd, msg, wp, lp):
+        if msg == _WM_TRAYICON:
+            ev = lp & 0xFFFF
+            if ev == _WM_LBUTTONUP:
+                self._app._tray_request("toggle")
+            elif ev == _WM_RBUTTONUP:
+                self._show_menu()
+            return 0
+        if msg == _WM_COMMAND:
+            cmd = wp & 0xFFFF
+            if cmd == _CMD_SHOW:
+                self._app._tray_request("toggle")
+            elif cmd == _CMD_QUIT:
+                self._app._tray_request("quit")
+            return 0
+        return ctypes.windll.user32.DefWindowProcW(hwnd, msg, wp, lp)
+
+    def _show_menu(self):
+        try:
+            u32 = ctypes.windll.user32
+            h = u32.CreatePopupMenu()
+            u32.AppendMenuW(h, _MF_STRING, _CMD_SHOW, "显示 / 隐藏")
+            u32.AppendMenuW(h, _MF_STRING, _CMD_QUIT, "退出")
+            pt = wintypes.POINT()
+            u32.GetCursorPos(ctypes.byref(pt))
+            u32.SetForegroundWindow(self._hwnd)
+            u32.TrackPopupMenu(h, _TPM_RIGHTBUTTON,
+                               pt.x, pt.y, 0, self._hwnd, None)
+            u32.DestroyMenu(h)
+        except Exception:
+            pass
+
+    def _load_icon(self):
+        for p in (os.path.join(APP_DIR, "app.ico"),
+                  os.path.join(APP_DIR, "assets", "deepseek_3.ico")):
+            if os.path.exists(p):
+                try:
+                    h = ctypes.windll.user32.LoadImageW(
+                        None, p, _IMAGE_ICON, 32, 32, _LR_LOADFROMFILE)
+                    if h:
+                        return h
+                except Exception:
+                    pass
+        try:
+            tmp = os.path.join(tempfile.gettempdir(), "ai_timer_tray.ico")
+            img = make_gradient(64, 64, GRAD_TOP, GRAD_BOT)
+            d = ImageDraw.Draw(img)
+            try:
+                font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 34)
+            except Exception:
+                font = ImageFont.load_default()
+            d.ellipse((2, 2, 62, 62), fill=(255, 255, 255, 255))
+            d.text((32, 32), "AI", font=font, fill=GRAD_BG_HEX, anchor="mm")
+            img.save(tmp, format="ICO", sizes=[(32, 32), (64, 64)])
+            return ctypes.windll.user32.LoadImageW(
+                None, tmp, _IMAGE_ICON, 32, 32, _LR_LOADFROMFILE)
+        except Exception:
+            return None
+
+    def _create(self):
+        u32 = ctypes.windll.user32
+        k32 = ctypes.windll.kernel32
+        hinst = k32.GetModuleHandleW(None)
+        WNDPROC = ctypes.WINFUNCTYPE(wintypes.LONG, wintypes.HWND, wintypes.UINT,
+                                     wintypes.WPARAM, wintypes.LPARAM)
+        self._wndproc = WNDPROC(self._wnd_proc)
+
+        class _WNDCLASSW(ctypes.Structure):
+            _fields_ = [
+                ("style", wintypes.UINT),
+                ("lpfnWndProc", WNDPROC),
+                ("cbClsExtra", ctypes.c_int),
+                ("cbWndExtra", ctypes.c_int),
+                ("hInstance", wintypes.HINSTANCE),
+                ("hIcon", wintypes.HICON),
+                ("hCursor", wintypes.HANDLE),
+                ("hbrBackground", wintypes.HBRUSH),
+                ("lpszMenuName", wintypes.LPCWSTR),
+                ("lpszClassName", wintypes.LPCWSTR),
+            ]
+
+        wc = _WNDCLASSW()
+        wc.style = 0
+        wc.lpfnWndProc = self._wndproc
+        wc.cbClsExtra = 0
+        wc.cbWndExtra = 0
+        wc.hInstance = hinst
+        wc.hIcon = None
+        wc.hCursor = None
+        wc.hbrBackground = None
+        wc.lpszMenuName = None
+        wc.lpszClassName = self._WNDCLASS
+        u32.RegisterClassW(ctypes.byref(wc))   # 已注册会失败，可忽略
+        self._hwnd = u32.CreateWindowExW(0, self._WNDCLASS, "AiTray", 0,
+                                         0, 0, 0, 0, None, None, hinst, None)
+        if not self._hwnd:
+            raise RuntimeError("CreateWindowExW failed")
+        self._hicon = self._load_icon()
+        nid = _NOTIFYICONDATAW()
+        nid.cbSize = ctypes.sizeof(_NOTIFYICONDATAW)
+        nid.hWnd = self._hwnd
+        nid.uID = 1
+        nid.uFlags = _NIF_MESSAGE | _NIF_ICON | _NIF_TIP
+        nid.uCallbackMessage = _WM_TRAYICON
+        nid.hIcon = self._hicon
+        nid.szTip = "发条AI时段小组件"
+        if not u32.Shell_NotifyIconW(_NIM_ADD, ctypes.byref(nid)):
+            raise RuntimeError("Shell_NotifyIconW failed")
+
+    def _run(self):
+        try:
+            self._tid = ctypes.windll.kernel32.GetCurrentThreadId()
+            self._create()
+            msg = wintypes.MSG()
+            u32 = ctypes.windll.user32
+            while self._alive:
+                r = u32.GetMessageW(ctypes.byref(msg), None, 0, 0)
+                if r <= 0:
+                    break
+                u32.TranslateMessage(ctypes.byref(msg))
+                u32.DispatchMessageW(ctypes.byref(msg))
+        except Exception:
+            pass
+        finally:
+            try:
+                self._destroy()
+            except Exception:
+                pass
+
+    def start(self):
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _destroy(self):
+        try:
+            u32 = ctypes.windll.user32
+            if self._hwnd:
+                nid = _NOTIFYICONDATAW()
+                nid.cbSize = ctypes.sizeof(_NOTIFYICONDATAW)
+                nid.hWnd = self._hwnd
+                nid.uID = 1
+                u32.Shell_NotifyIconW(_NIM_DELETE, ctypes.byref(nid))
+                u32.DestroyWindow(self._hwnd)
+                self._hwnd = None
+            if self._hicon:
+                u32.DestroyIcon(self._hicon)
+                self._hicon = None
+        except Exception:
+            pass
+
+    def remove(self):
+        self._alive = False
+        try:
+            if self._tid:
+                ctypes.windll.user32.PostThreadMessageW(
+                    self._tid, 0x0012, 0, 0)   # WM_QUIT
+        except Exception:
+            pass
 
 
 def _logo_fg(hexcolor: str) -> str:
@@ -580,6 +790,8 @@ class Widget(tk.Tk):
         self._api_balance = {}            # tpl_id -> {text, fill, sub} 查询缓存
         self._api_balance_fetched_at = 0.0  # 上次 API 余额查询时间
         self._sub_pages = 0               # 订阅到期提醒页数（API 页从其后开始）
+        self._zoom = 1.0                  # UI 缩放倍率（1.0 / 1.5）
+        self._tray_q = []                 # 托盘事件队列（主线程 tick 消费）
         self._flash_on = False            # 红字闪烁相位
         self._last_switch = time.time()   # 上次切页时刻
         self._last_flash = time.time()    # 上次闪烁切换时刻
@@ -596,17 +808,18 @@ class Widget(tk.Tk):
         self._icon_ds = self._load_icon("deepseek_icon.png")
         self._icon_gpt = self._load_icon("chatgpt_icon.png")
         _gear = make_gear(20, (255, 255, 255))
-        if abs(UI_SCALE - 1.0) > 1e-9:
+        if abs(UI_SCALE * self._zoom - 1.0) > 1e-9:
             _gear = _gear.resize(
-                (max(1, int(20 * UI_SCALE)), max(1, int(20 * UI_SCALE))),
+                (max(1, int(20 * UI_SCALE * self._zoom)),
+                 max(1, int(20 * UI_SCALE * self._zoom))),
                 Image.LANCZOS)
         self._gear_img = ImageTk.PhotoImage(_gear)
         self._bg_img = None
 
         self.canvas = tk.Canvas(self, highlightthickness=0, bd=0,
                                 bg=GRAD_BG_HEX,
-                                width=int(DESIGN_W * UI_SCALE),
-                                height=int(DESIGN_H * UI_SCALE_H))
+                                width=int(DESIGN_W * UI_SCALE * self._zoom),
+                                height=int(DESIGN_H * UI_SCALE_H * self._zoom))
         self.canvas.pack()
 
         self.rebuild_pages()
@@ -616,7 +829,7 @@ class Widget(tk.Tk):
         pos = self.cfg.get("pos") or {}
         x = pos.get("x")
         y = pos.get("y")
-        ww, wh = int(DESIGN_W * UI_SCALE), int(DESIGN_H * UI_SCALE_H)
+        ww, wh = int(DESIGN_W * UI_SCALE * self._zoom), int(DESIGN_H * UI_SCALE_H * self._zoom)
         # 旧位置在新窗口尺寸下可能超出屏幕（越界则回到右下角）
         if not x or not y or x + ww > sw or y + wh > sh:
             x = sw - ww
@@ -713,10 +926,10 @@ class Widget(tk.Tk):
     def _load_icon(self, name):
         try:
             img = Image.open(os.path.join(APP_DIR, "assets", name)).convert("RGBA")
-            if abs(UI_SCALE - 1.0) > 1e-9:
+            if abs(UI_SCALE * self._zoom - 1.0) > 1e-9:
                 img = img.resize(
-                    (max(1, int(img.width * UI_SCALE)),
-                     max(1, int(img.height * UI_SCALE))), Image.LANCZOS)
+                    (max(1, int(img.width * UI_SCALE * self._zoom)),
+                     max(1, int(img.height * UI_SCALE * self._zoom))), Image.LANCZOS)
             return ImageTk.PhotoImage(img)
         except Exception:
             return None
@@ -725,46 +938,36 @@ class Widget(tk.Tk):
         try:
             hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
             hrgn = ctypes.windll.gdi32.CreateRoundRectRgn(
-                0, 0, int(DESIGN_W * UI_SCALE) + 1,
-                int(DESIGN_H * UI_SCALE_H) + 1,
-                int(radius * 2 * UI_SCALE), int(radius * 2 * UI_SCALE))
+                0, 0, int(DESIGN_W * UI_SCALE * self._zoom) + 1,
+                int(DESIGN_H * UI_SCALE_H * self._zoom) + 1,
+                int(radius * 2 * UI_SCALE * self._zoom),
+                int(radius * 2 * UI_SCALE * self._zoom))
             ctypes.windll.user32.SetWindowRgn(hwnd, hrgn, True)
         except Exception:
             pass
 
-    # ---------- 托盘 ----------
-    def _make_tray_image(self):
-        try:
-            img = make_gradient(64, 64, GRAD_TOP, GRAD_BOT)
-            d = ImageDraw.Draw(img)
-            try:
-                font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 32)
-            except Exception:
-                font = ImageFont.load_default()
-            d.ellipse((4, 4, 60, 60), fill=(255, 255, 255, 200))
-            d.text((32, 32), "AI", font=font, fill=GRAD_BG_HEX, anchor="mm")
-            return img
-        except Exception:
-            return Image.new("RGB", (64, 64), GRAD_BG_HEX)
-
+    # ---------- 托盘（Win32 Shell_NotifyIcon，见模块级 WinTray 类） ----------
     def _init_tray(self):
         try:
-            import pystray
-            menu = pystray.Menu(
-                pystray.MenuItem("显示 / 隐藏", self._tray_toggle, default=True),
-                pystray.MenuItem("退出", self._tray_quit),
-            )
-            self._tray = pystray.Icon("ai_timer_widget", self._make_tray_image(),
-                                      "发条AI时段小组件", menu)
-            self._tray.run_detached()
+            self._tray = WinTray(self)
+            self._tray.start()
         except Exception:
             self._tray = None
 
-    def _tray_toggle(self, icon=None, item=None):
-        self.after(0, self._toggle_window)
+    def _tray_request(self, action):
+        """托盘线程回调：把动作放进队列，由主线程 tick 执行（tkinter 只能在主线程操作）。"""
+        try:
+            self._tray_q.append(action)
+        except Exception:
+            pass
 
-    def _tray_quit(self, icon=None, item=None):
-        self.after(0, self._quit_app)
+    def _drain_tray(self):
+        while self._tray_q:
+            a = self._tray_q.pop(0)
+            if a == "toggle":
+                self._toggle_window()
+            elif a == "quit":
+                self._quit_app()
 
     def _toggle_window(self):
         if self.state() == "normal":
@@ -780,7 +983,7 @@ class Widget(tk.Tk):
         self._closing = True
         try:
             if self._tray:
-                self._tray.stop()
+                self._tray.remove()
         except Exception:
             pass
         try:
@@ -804,7 +1007,8 @@ class Widget(tk.Tk):
         cv = self.canvas
         cv.delete("all")
         self._bg_img = ImageTk.PhotoImage(
-            make_gradient(int(DESIGN_W * UI_SCALE), int(DESIGN_H * UI_SCALE_H),
+            make_gradient(int(DESIGN_W * UI_SCALE * self._zoom),
+                          int(DESIGN_H * UI_SCALE_H * self._zoom),
                           GRAD_TOP, GRAD_BOT))
         cv.create_image(0, 0, image=self._bg_img, anchor="nw", tags="bg")
 
@@ -940,6 +1144,8 @@ class Widget(tk.Tk):
                        font=(FONT, 11), tags=(PG0, "close"))
         self.pin_btn = cv.create_text(R - 88, 26, text="", anchor="e",
                                       fill=ACC_C, font=(FONT, 8), tags=(PG0, "pin"))
+        cv.create_text(R - 148, 26, text="1×", anchor="e", fill=FG_DIM,
+                       font=(FONT, 8), tags=(PG0, "zoom"))
 
         # ---- DeepSeek 区块 ----
         if self._icon_ds:
@@ -957,7 +1163,7 @@ class Widget(tk.Tk):
         self.ds_sub_r = cv.create_text(R, 126, text="", anchor="e",
                                        fill=FG_DIM, font=(MONO, 9), tags=PG0)
         self.ds_balance = cv.create_text(PAD, 152, text="", anchor="w",
-                                         fill=FG_DIM, font=(FONT, 8), tags=PG0)
+                                         fill=FG_DIM, font=(FONT, 10, "bold"), tags=PG0)
         cv.create_line(PAD, 190, R, 190, fill=DIVIDER, width=1, tags=PG0)
 
         # ---- ChatGPT 区块（5小时 + 一周双窗口，无进度条） ----
@@ -1010,6 +1216,8 @@ class Widget(tk.Tk):
                            fill=FG_DIM, font=(FONT, 8), tags=tag0)
             cv.create_text(R - 88, 26, text="", anchor="e", fill=ACC_C,
                            font=(FONT, 8), tags=(tag0, "pin"))
+            cv.create_text(R - 148, 26, text="1×", anchor="e", fill=FG_DIM,
+                           font=(FONT, 8), tags=(tag0, "zoom"))
             cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                            font=(FONT, 11), tags=(tag0, "close"))
             cv.create_image(R - 44, 378, image=self._gear_img, anchor="center",
@@ -1032,7 +1240,7 @@ class Widget(tk.Tk):
                 logo_char = s["name"][0].upper()
                 logo_img = ImageTk.PhotoImage(make_logo_img(
                     logo_char, s.get("color", ACC_C),
-                    max(2, int(LOGO_SIZE * UI_SCALE))))
+                    max(2, int(LOGO_SIZE * UI_SCALE * self._zoom))))
                 self._logo_imgs.append(logo_img)
                 cv.create_image(PAD + 12, y + (72 - LOGO_SIZE) // 2,
                                 image=logo_img, anchor="nw", tags=tag0)
@@ -1059,6 +1267,8 @@ class Widget(tk.Tk):
                            fill=FG_DIM, font=(FONT, 8), tags=tag0)
             cv.create_text(R - 88, 26, text="", anchor="e", fill=ACC_C,
                            font=(FONT, 8), tags=(tag0, "pin"))
+            cv.create_text(R - 148, 26, text="1×", anchor="e", fill=FG_DIM,
+                           font=(FONT, 8), tags=(tag0, "zoom"))
             cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
                            font=(FONT, 11), tags=(tag0, "close"))
             cv.create_image(R - 44, 378, image=self._gear_img, anchor="center",
@@ -1083,7 +1293,7 @@ class Widget(tk.Tk):
                                     outline=CARD_OUT, tags=tag0)
                 logo_char = (name[0] if name else "A").upper()
                 logo_img = ImageTk.PhotoImage(make_logo_img(
-                    logo_char, color, max(2, int(LOGO_SIZE * UI_SCALE))))
+                    logo_char, color, max(2, int(LOGO_SIZE * UI_SCALE * self._zoom))))
                 self._logo_imgs.append(logo_img)
                 cv.create_image(PAD + 12, y + (72 - LOGO_SIZE) // 2,
                                 image=logo_img, anchor="nw", tags=tag0)
@@ -1103,6 +1313,9 @@ class Widget(tk.Tk):
         cv = self.canvas
         cv.tag_bind("close", "<Button-1>", lambda e: self._hide_to_tray())
         cv.tag_bind("pin", "<Button-1>", lambda e: self.toggle_topmost())
+        cv.tag_bind("zoom", "<Button-1>", lambda e: self.toggle_zoom())
+        cv.tag_bind("zoom", "<Enter>", lambda e: cv.itemconfig("zoom", fill=FG_W))
+        cv.tag_bind("zoom", "<Leave>", lambda e: self._paint_zoom_btn())
         cv.tag_bind("gear", "<Button-1>", lambda e: self.open_web_settings())
         cv.tag_bind("prev", "<Button-1>", lambda e: self.prev_page())
         cv.tag_bind("next", "<Button-1>", lambda e: self.next_page())
@@ -1282,6 +1495,54 @@ class Widget(tk.Tk):
         top = bool(self.attributes("-topmost"))
         self.canvas.itemconfig("pin", text="置顶：" + ("开" if top else "关"),
                                fill=ACC_C if top else FG_DIM)
+
+    # ---------- UI 缩放（1× / 1.5×） ----------
+    def toggle_zoom(self):
+        self._zoom = 1.5 if abs(self._zoom - 1.0) < 1e-9 else 1.0
+        self._apply_zoom()
+        self.save_cfg()
+
+    def _paint_zoom_btn(self):
+        big = abs(self._zoom - 1.0) > 1e-9
+        self.canvas.itemconfig(
+            "zoom", text=("1.5×" if big else "1×"),
+            fill=ACC_C if big else FG_DIM)
+
+    def _apply_zoom(self):
+        """按 self._zoom 重建窗口（基坐标重绘 + 整体缩放 + 位图按有效缩放生成）。"""
+        z = self._zoom
+        w = int(DESIGN_W * UI_SCALE * z)
+        h = int(DESIGN_H * UI_SCALE_H * z)
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        x, y = self.winfo_x(), self.winfo_y()
+        if x + w > sw:
+            x = max(0, sw - w)
+        if y + h > sh:
+            y = max(0, sh - h)
+        self.canvas.configure(width=w, height=h)
+        self.geometry(f"{w}x{h}+{int(x)}+{int(y)}")
+        self.rebuild_pages()          # 基坐标重建（_scale_ui 已做基础缩放）
+        if abs(z - 1.0) > 1e-9:
+            cv = self.canvas
+            cv.scale("all", 0, 0, z, z)
+            for item in cv.find_all():
+                try:
+                    t = cv.type(item)
+                except Exception:
+                    continue
+                if t == "text":
+                    try:
+                        font = cv.itemcget(item, "font") or ""
+                        m = re.search(r"(\d+(?:\.\d+)?)", font)
+                        if m:
+                            size = max(2, int(round(float(m.group(1)) * z)))
+                            cv.itemconfig(item, font=re.sub(
+                                r"\d+(?:\.\d+)?", str(size), font, count=1))
+                    except Exception:
+                        pass
+        self._apply_round_rect()
+        self._paint_zoom_btn()
+        self._paint_pin()
 
     def show_help(self):
         messagebox.showinfo(
@@ -1753,6 +2014,8 @@ class Widget(tk.Tk):
         now = time.time()
         # --- 应用网页设置（主线程） ---
         self._drain_web_config()
+        # --- 托盘事件（左键切换 / 右键退出） ---
+        self._drain_tray()
         self._maybe_refresh_api_balances(now)
         # --- 页面轮播：每隔 rotate_seconds 秒自动切到下一页 ---
         if (self._page_count > 1 and
@@ -2058,8 +2321,8 @@ class Widget(tk.Tk):
             self.update()
             x, y = self.winfo_rootx(), self.winfo_rooty()
             img = ImageGrab.grab(bbox=(int(x), int(y),
-                                       int(x) + int(DESIGN_W * UI_SCALE),
-                                       int(y) + int(DESIGN_H * UI_SCALE_H)))
+                                       int(x) + int(DESIGN_W * UI_SCALE * self._zoom),
+                                       int(y) + int(DESIGN_H * UI_SCALE_H * self._zoom)))
             img.save(os.path.join(self._preview_out, f"page{self.page_idx}.png"))
             self._preview_queue.pop(0)
         except Exception as e:
@@ -2085,6 +2348,9 @@ def main():
         outdir = "preview"
         if len(argv) > argv.index("--preview") + 1:
             outdir = argv[argv.index("--preview") + 1]
+        if "--zoom15" in argv:
+            app._zoom = 1.5
+            app._apply_zoom()
         app.start_preview(outdir)
     app.mainloop()
 
