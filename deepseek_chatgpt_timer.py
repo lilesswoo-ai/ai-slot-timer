@@ -90,8 +90,8 @@ OFF_C  = "#15803d"   # 闲时（绿）
 ACC_C  = "#2563eb"   # 强调蓝
 WARN_C = "#b45309"   # 琥珀
 DIVIDER = "#e6dcc2"
-BTN_BG = "#2563eb"
-BTN_HOV = "#1d4ed8"
+BTN_BG = "#dbeafe"
+BTN_HOV = "#bfdbfe"
 BTN_ON = "#15803d"   # 开关开
 BAR_BG = "#e6dcc2"
 
@@ -1008,10 +1008,10 @@ class Widget(tk.Tk):
         cv.delete("all")
         self._layout_top()
         self._pin_bg_off = self._pill(66, 20, (51, 58, 69), 36)
-        self._pin_bg_on = self._pill(66, 20, (37, 99, 235), 110)
+        self._pin_bg_on = self._pill(66, 20, (219, 234, 254), 120)
         self._pin_bg_hover = self._pill(66, 20, (51, 58, 69), 90)
         self._zoom_bg_off = self._pill(38, 20, (51, 58, 69), 36)
-        self._zoom_bg_on = self._pill(38, 20, (37, 99, 235), 110)
+        self._zoom_bg_on = self._pill(38, 20, (219, 234, 254), 120)
         self._zoom_bg_hover = self._pill(38, 20, (51, 58, 69), 90)
         self._bg_img = ImageTk.PhotoImage(
             make_gradient(int(DESIGN_W * UI_SCALE * self._zoom),
