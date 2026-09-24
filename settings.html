@@ -101,6 +101,20 @@
     </div>
   </section>
 
+  <!-- API 订阅额度 -->
+  <section class="card">
+    <h2><span class="bar"></span>API 订阅额度</h2>
+    <p class="hint">内置常用 API 平台模板（名称 + API 地址），下拉选择后输入 API Key 即可自动查询余额/订阅额度。<b style="color:var(--warn)">支持一键查询：硅基流动、MiniMax（mimo）、DeepSeek</b>；智谱 / 月之暗面 / 火山引擎 / 阿里云百炼 / 腾讯云无 API Key 直查余额接口，可填「手动余额」登记数值参与显示。新增的 API 条目会在小组件订阅页之后的新页中轮播。</p>
+    <div id="api-list"></div>
+    <div class="row">
+      <select id="api-tpl" style="width:190px"></select>
+      <input type="password" id="api-key" placeholder="API Key" style="flex:1; min-width:140px" autocomplete="off">
+      <input type="text" id="api-manual" placeholder="手动余额(可选)" style="width:120px">
+      <button id="api-add-btn">＋ 添加 API</button>
+    </div>
+    <p class="hint" id="api-tpl-tip"></p>
+  </section>
+
   <!-- 轮播与提醒 -->
   <section class="card">
     <h2><span class="bar"></span>页面轮播与到期提醒</h2>
@@ -258,7 +272,19 @@ function render(){
   });
   $("peak-rule").textContent = "峰谷规则：" + state.peak_rule;
 
+  // API 模板下拉
+  var at = $("api-tpl");
+  at.innerHTML = "";
+  (state.api_templates || []).forEach(function(t){
+    var o = document.createElement("option");
+    o.value = t.id;
+    o.textContent = t.name;
+    if(!t.balance_url) o.textContent += "（控制台）";
+    at.appendChild(o);
+  });
+
   renderSubs();
+  renderApis();
 }
 
 function fmtNum(n){ return String(n).replace(/(\.\d*?)0+$/,"$1").replace(/\.$/,""); }
@@ -378,6 +404,90 @@ function renderSubs(){
   });
 }
 
+function renderApis(){
+  var box = $("api-list");
+  box.innerHTML = "";
+  if(!state.api_subs || state.api_subs.length === 0){
+    var empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = "暂无 API 订阅，可在下方添加。";
+    box.appendChild(empty);
+    return;
+  }
+  state.api_subs.forEach(function(s, idx){
+    var row = document.createElement("div");
+    row.className = "sub-row";
+
+    var name = document.createElement("input");
+    name.type = "text";
+    name.className = "sub-name";
+    name.value = s.name || "";
+    name.placeholder = "显示名称";
+    name.title = "可直接修改名称";
+    name.addEventListener("input", function(){ state.api_subs[idx].name = name.value; saveLater(); });
+
+    var tplSel = document.createElement("select");
+    tplSel.title = "切换平台模板";
+    (state.api_templates || []).forEach(function(t){
+      var o = document.createElement("option");
+      o.value = t.id; o.textContent = t.name;
+      if(t.id === s.tpl) o.selected = true;
+      tplSel.appendChild(o);
+    });
+    tplSel.addEventListener("change", function(){
+      state.api_subs[idx].tpl = tplSel.value;
+      if(!state.api_subs[idx].manual) delete state.api_subs[idx].manual;
+      saveNow();
+    });
+
+    var key = document.createElement("input");
+    key.type = "password";
+    key.className = "sub-name";
+    key.value = s.key || "";
+    key.placeholder = "API Key";
+    key.title = "用于自动查询额度";
+    key.addEventListener("input", function(){ state.api_subs[idx].key = key.value; saveLater(); });
+
+    var man = document.createElement("input");
+    man.type = "text";
+    man.style.width = "110px";
+    man.value = s.manual || "";
+    man.placeholder = "手动余额";
+    man.title = "无查询接口的平台可填余额数字";
+    man.addEventListener("input", function(){
+      var v = man.value.trim();
+      if(v && !isNaN(parseFloat(v))) state.api_subs[idx].manual = v;
+      else delete state.api_subs[idx].manual;
+      saveLater();
+    });
+
+    var en = document.createElement("label");
+    en.className = "toggle";
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !!s.enabled;
+    cb.title = "启用 / 停用";
+    cb.addEventListener("change", function(){ state.api_subs[idx].enabled = cb.checked; saveNow(); });
+    en.appendChild(cb);
+    en.appendChild(document.createTextNode("启用"));
+
+    var del = document.createElement("button");
+    del.className = "danger";
+    del.textContent = "删除";
+    del.title = "删除该 API 订阅";
+    del.addEventListener("click", function(){
+      if(!window.confirm("确定删除 API「" + (s.name || "") + "」？")) return;
+      state.api_subs.splice(idx, 1);
+      renderApis();
+      saveNow();
+    });
+
+    row.appendChild(name); row.appendChild(tplSel); row.appendChild(key);
+    row.appendChild(man); row.appendChild(en); row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+
 function collect(){
   var subs = (state.subscriptions || []).map(function(s){
     var item = { name:s.name, enabled:!!s.enabled, color:s.color || "#7ec8ff" };
@@ -400,7 +510,13 @@ function collect(){
     gpt_renew_day: Math.max(1, Math.min(31, parseInt($("gpt_renew_day").value,10)||5)),
     topmost: $("topmost").checked,
     autostart: $("autostart").checked,
-    subscriptions: subs
+    subscriptions: subs,
+    api_subs: (state.api_subs || []).map(function(s){
+      var item = { tpl:s.tpl, name:s.name, enabled:!!s.enabled, key:s.key || "" };
+      if(s.manual) item.manual = s.manual;
+      if(s.id) item.id = s.id;
+      return item;
+    })
   };
 }
 
@@ -478,6 +594,29 @@ $("add-btn").addEventListener("click", function(){
   state.subscriptions.push(sub);
   $("add-name").value = "";
   renderSubs();
+  saveNow();
+});
+
+// API 模板切换 → 显示模板说明
+$("api-tpl").addEventListener("change", function(){
+  var tpl = (state.api_templates || []).find(function(t){ return t.id === $("api-tpl").value; });
+  $("api-tpl-tip").textContent = tpl ? ("API 地址：" + (tpl.api_url || "（自定义填写）") + " · " + tpl.tip) : "";
+});
+
+// 添加 API 订阅
+$("api-add-btn").addEventListener("click", function(){
+  var tplId = $("api-tpl").value;
+  var tpl = (state.api_templates || []).find(function(t){ return t.id === tplId; });
+  var key = $("api-key").value.trim();
+  var man = $("api-manual").value.trim();
+  if(!key && !man){ setStatus("请填写 API Key 或手动余额", "var(--red)"); return; }
+  var item = { tpl: tplId, name: tpl ? tpl.name : "API", enabled: true, key: key };
+  if(man && !isNaN(parseFloat(man))) item.manual = man;
+  state.api_subs = state.api_subs || [];
+  state.api_subs.push(item);
+  $("api-key").value = "";
+  $("api-manual").value = "";
+  renderApis();
   saveNow();
 });
 

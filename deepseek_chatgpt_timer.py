@@ -110,6 +110,89 @@ CARD_BG = "#1a3f8f"                  # 订阅卡片底
 CARD_OUT = "#2f5fb5"                 # 订阅卡片描边
 LOGO_SIZE = 34                       # 订阅卡片左侧自动 LOGO 圆直径（设计坐标）
 
+# ---------------- API 订阅额度模板（官方真实接口） ----------------
+# balance_url 非空 → 支持「API Key 一键查询」；为空 → 该平台无 API Key 直查余额接口
+# （余额查询需 AK/SK 签名或登录控制台），条目仍可显示手动登记的余额。
+API_TEMPLATES = [
+    {"id": "siliconflow", "name": "硅基流动 SiliconFlow", "color": "#4db8ff",
+     "api_url": "https://api.siliconflow.cn/v1",
+     "balance_url": "https://api.siliconflow.cn/v1/user/info",
+     "console_url": "https://cloud.siliconflow.cn/account/balance",
+     "tip": "一键查询总余额（赠送+充值）"},
+    {"id": "minimax", "name": "MiniMax（mimo）", "color": "#5eead4",
+     "api_url": "https://api.minimaxi.com/v1",
+     "balance_url": "https://www.minimaxi.com/v1/token_plan/remains",
+     "console_url": "https://platform.minimaxi.com",
+     "tip": "一键查询 Token Plan 订阅剩余额度"},
+    {"id": "deepseek", "name": "DeepSeek", "color": "#7ec8ff",
+     "api_url": "https://api.deepseek.com",
+     "balance_url": "https://api.deepseek.com/user/balance",
+     "console_url": "https://platform.deepseek.com",
+     "tip": "一键查询账户余额（与主界面一致）"},
+    {"id": "zhipu", "name": "智谱 GLM", "color": "#ffb4a2",
+     "api_url": "https://open.bigmodel.cn/api/paas/v4",
+     "balance_url": "", "console_url": "https://open.bigmodel.cn/console",
+     "tip": "无公开余额接口，请登录控制台查看"},
+    {"id": "moonshot", "name": "月之暗面 Kimi", "color": "#c9a6ff",
+     "api_url": "https://api.moonshot.cn/v1",
+     "balance_url": "", "console_url": "https://platform.moonshot.cn/console",
+     "tip": "无公开余额接口，请登录控制台查看"},
+    {"id": "volcengine", "name": "火山引擎（方舟）", "color": "#ffd166",
+     "api_url": "https://ark.cn-beijing.volces.com/api/v3",
+     "balance_url": "", "console_url": "https://console.volcengine.com/ark",
+     "tip": "余额需 AccessKey（AK/SK）签名，请登录控制台查看"},
+    {"id": "aliyun", "name": "阿里云百炼", "color": "#a8d8ff",
+     "api_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+     "balance_url": "", "console_url": "https://bailian.console.aliyun.com",
+     "tip": "余额需 AccessKey（AK/SK）签名，请登录控制台查看"},
+    {"id": "tencent", "name": "腾讯云大模型", "color": "#a5e6a5",
+     "api_url": "https://api.hunyuan.cloud.tencent.com/v1",
+     "balance_url": "", "console_url": "https://console.cloud.tencent.com/expense",
+     "tip": "余额需 SecretId/SecretKey 签名，请登录控制台查看"},
+    {"id": "custom", "name": "自定义", "color": "#cfd8dc",
+     "api_url": "", "balance_url": "", "console_url": "",
+     "tip": "自定义 API 地址（Key 仅记录，需手动登记余额）"},
+]
+
+
+def api_tpl_by_id(tid):
+    for t in API_TEMPLATES:
+        if t["id"] == tid:
+            return t
+    return None
+
+
+def _find_number(obj, depth=0):
+    """递归在 API 返回体中找第一个可作额度展示的数字（容错解析各家返回结构）。"""
+    if depth > 5:
+        return None
+    if isinstance(obj, dict):
+        for k in ("remaining", "quota_remaining", "quota", "total_balance",
+                  "balance", "total", "remain", "left", "credits", "tokens"):
+            v = obj.get(k)
+            if isinstance(v, (int, float)) and v >= 0:
+                return v
+            if isinstance(v, str):
+                t = v.replace(",", "").strip()
+                if t.replace(".", "", 1).isdigit():
+                    return float(t)
+        for k, v in obj.items():
+            kl = str(k).lower()
+            if any(x in kl for x in ("code", "err", "msg", "status", "ret",
+                                     "request", "time", "version", "reqid")):
+                continue
+            r = _find_number(v, depth + 1)
+            if r is not None:
+                return r
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            r = _find_number(v, depth + 1)
+            if r is not None:
+                return r
+    elif isinstance(obj, (int, float)) and obj >= 0:
+        return obj
+    return None
+
 # ---------------- DeepSeek 峰谷规则与价格 ----------------
 # 高峰(忙时): 北京时间 周一至周五 09:00-12:00、14:00-18:00
 PEAK_MINUTES = [(9 * 60, 12 * 60), (14 * 60, 18 * 60)]
@@ -493,6 +576,10 @@ class Widget(tk.Tk):
         self._nav_next = {}               # 各页标题栏「▶」三角 id
         self._nav_nums = {}               # 各页标题栏页码数字 id 列表（pg -> [ids]）
         self._sub_dynamic = []            # 订阅动态文本项（与启用的订阅对齐）
+        self._api_dynamic = []            # API 额度卡动态文本项
+        self._api_balance = {}            # tpl_id -> {text, fill, sub} 查询缓存
+        self._api_balance_fetched_at = 0.0  # 上次 API 余额查询时间
+        self._sub_pages = 0               # 订阅到期提醒页数（API 页从其后开始）
         self._flash_on = False            # 红字闪烁相位
         self._last_switch = time.time()   # 上次切页时刻
         self._last_flash = time.time()    # 上次闪烁切换时刻
@@ -615,6 +702,7 @@ class Widget(tk.Tk):
             "sub_warn_days": int(self.cfg.get("sub_warn_days", DEFAULT_WARN_DAYS)),
             "gpt_renew_day": int(self.cfg.get("gpt_renew_day", 5) or 5),
             "subscriptions": self.cfg.get("subscriptions", []),
+            "api_subs": self.cfg.get("api_subs", []),
         }
         try:
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -707,6 +795,10 @@ class Widget(tk.Tk):
         return [s for s in self.cfg.get("subscriptions", [])
                 if isinstance(s, dict) and s.get("enabled", True)]
 
+    def _enabled_api_subs(self):
+        return [s for s in self.cfg.get("api_subs", [])
+                if isinstance(s, dict) and s.get("enabled", True)]
+
     def rebuild_pages(self):
         """重建全部页面（启动时 / 设置变化后）。"""
         cv = self.canvas
@@ -725,8 +817,12 @@ class Widget(tk.Tk):
         self._build_main_page()
         subs = self._enabled_subs()
         sub_pages = (len(subs) + SUB_PER_PAGE - 1) // SUB_PER_PAGE if subs else 0
+        self._sub_pages = sub_pages
         self._build_sub_pages(subs, sub_pages)
-        self._page_count = 1 + sub_pages
+        apis = self._enabled_api_subs()
+        api_pages = (len(apis) + SUB_PER_PAGE - 1) // SUB_PER_PAGE if apis else 0
+        self._build_api_pages(apis, api_pages)
+        self._page_count = 1 + sub_pages + api_pages
         if self.page_idx >= self._page_count:
             self.page_idx = 0
         self._last_switch = time.time()
@@ -956,6 +1052,60 @@ class Widget(tk.Tk):
                            text="暂无订阅到期提醒\n点击右下角「设置」添加（内置 即梦 / Running Hub 等预设）",
                            fill=FG_DIM, font=(FONT, 12), justify="center",
                            tags="pg1")
+
+    def _build_api_pages(self, apis, api_pages):
+        """API 额度/订阅页：排在订阅到期提醒页之后（页序 0=主界面，1..订阅，其后=API）。"""
+        cv = self.canvas
+        R = DESIGN_W - PAD
+        for k in range(api_pages):
+            pg = self._sub_pages + k + 1
+            tag0 = "pg%d" % pg
+            cv.create_text(PAD, 26, text="API 额度 / 订阅", anchor="w",
+                           fill=FG_DIM, font=(FONT, 8), tags=tag0)
+            cv.create_text(R - 40, 26, text="  ×  ", anchor="e", fill=FG_DIM,
+                           font=(FONT, 11), tags=(tag0, "close"))
+            cv.create_image(R - 44, 372, image=self._gear_img, anchor="center",
+                            tags=(tag0, "gear"))
+            cv.create_text(R - 28, 372, text="设置", anchor="w", fill=FG_DIM,
+                           font=(FONT, 7), tags=(tag0, "gear"))
+            cv.create_text(PAD, 384,
+                           text="右键：菜单 · 自动查询余额 · 无查询接口的平台显示「控制台查看」",
+                           anchor="w", fill=FG_DIM, font=(FONT, 8), tags=tag0)
+
+            for r in range(SUB_PER_PAGE):
+                i = k * SUB_PER_PAGE + r
+                if i >= len(apis):
+                    break
+                s = apis[i]
+                tpl = api_tpl_by_id(s.get("tpl", ""))
+                name = s.get("name") or (tpl or {}).get("name", "API")
+                color = (tpl or {}).get("color", "#7ec8ff")
+                tip = (tpl or {}).get("tip", "")
+                y = 52 + r * 80
+                cv.create_rectangle(PAD, y, R, y + 72, fill=CARD_BG,
+                                    outline=CARD_OUT, tags=tag0)
+                logo_char = (name[0] if name else "A").upper()
+                logo_img = ImageTk.PhotoImage(make_logo_img(
+                    logo_char, color, max(2, int(LOGO_SIZE * UI_SCALE))))
+                self._logo_imgs.append(logo_img)
+                cv.create_image(PAD + 12, y + (72 - LOGO_SIZE) // 2,
+                                image=logo_img, anchor="nw", tags=tag0)
+                cv.create_text(PAD + 56, y + 24, text=name, anchor="w",
+                               fill=FG_W, font=(FONT, 13, "bold"), tags=tag0)
+                cv.create_text(PAD + 56, y + 48, text=tip or "自定义 API",
+                               anchor="w", fill=FG_DIM, font=(FONT, 8), tags=tag0)
+                big = cv.create_text(R - 20, y + 24, text="", anchor="e",
+                                     fill=FG_W, font=(MONO, 15, "bold"), tags=tag0)
+                subtext = cv.create_text(R - 20, y + 50, text="", anchor="e",
+                                         fill=FG_DIM, font=(FONT, 9), tags=tag0)
+                self._api_dynamic.append({"sub": s, "big": big, "subtext": subtext})
+
+        # 没有任何启用 API 订阅时的占位提示（不可达，仅对齐订阅页行为）
+        if not apis:
+            cv.create_text(DESIGN_W // 2, 200, anchor="center",
+                           text="暂无 API 订阅\n点击右下角「设置」添加（内置 硅基流动 / MiniMax / 火山引擎 等模板）",
+                           fill=FG_DIM, font=(FONT, 12), justify="center",
+                           tags="pg%d" % (self._sub_pages + 1))
 
     # ---------- 页面事件绑定（删除重建后重新绑定） ----------
     def _bind_page_events(self):
@@ -1287,6 +1437,8 @@ class Widget(tk.Tk):
             "presets": SUB_PRESETS,
             "sound_labels": SOUND_LABELS,
             "sounds": SOUND_KINDS,
+            "api_templates": API_TEMPLATES,
+            "api_subs": self.cfg.get("api_subs", []),
         }
 
     def apply_web_config(self, data: dict):
@@ -1385,11 +1537,120 @@ class Widget(tk.Tk):
                         item["renew_day"] = 1
                 subs.append(item)
             c["subscriptions"] = subs
+        # --- API 订阅 ---
+        if "api_subs" in data and isinstance(data["api_subs"], list):
+            tpl_ids = {t["id"] for t in API_TEMPLATES}
+            apis = []
+            for s in data["api_subs"]:
+                if not isinstance(s, dict):
+                    continue
+                tpl = str(s.get("tpl", "")).strip()
+                if tpl not in tpl_ids:
+                    continue
+                tpl_info = api_tpl_by_id(tpl)
+                item = {"tpl": tpl,
+                        "name": str(s.get("name", "")).strip()[:24]
+                                or (tpl_info["name"] if tpl_info else "API"),
+                        "enabled": bool(s.get("enabled", True)),
+                        "key": str(s.get("key", "")).strip()}
+                man = str(s.get("manual", "")).strip()
+                if man.replace(".", "", 1).isdigit():
+                    item["manual"] = man
+                if s.get("id"):
+                    item["id"] = str(s["id"])[:32]
+                else:
+                    item["id"] = "api_" + str(int(time.time() * 1000) + len(apis))
+                apis.append(item)
+            c["api_subs"] = apis
+            self._api_balance = {}
+            self._api_balance_fetched_at = 0.0
 
         self.save_cfg()
         self.rebuild_pages()      # 页面数量/内容可能变化
         self.tick()
         self._paint_pin()
+
+    # ---------- API 订阅余额/额度查询（各平台官方接口） ----------
+    def _fetch_api_balance_http(self, sub):
+        """同步调用某平台额度接口（工作线程中执行）。返回 {text, fill, sub} 或 None。"""
+        tpl = api_tpl_by_id(sub.get("tpl", ""))
+        if not tpl or not tpl.get("balance_url"):
+            return None
+        key = str(sub.get("key", "")).strip()
+        if not key:
+            return {"text": "未填 Key", "fill": WARN_RED, "sub": "设置页可配置"}
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                tpl["balance_url"],
+                headers={"Authorization": "Bearer " + key})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            tid = tpl["id"]
+            if tid == "siliconflow":
+                d = data.get("data", {}) or {}
+                total = float(d.get("totalBalance", 0) or 0)
+                gift = d.get("balance", 0)
+                chg = d.get("chargeBalance", 0)
+                return {"text": f"¥{total:.2f}", "fill": OFF_C,
+                        "sub": f"总余额（赠 {gift:g} / 充 {chg:g}）"}
+            if tid == "deepseek":
+                infos = data.get("balance_infos", []) or []
+                total = 0.0
+                for i in infos:
+                    if i.get("currency") == "CNY":
+                        total += float(i.get("total_balance", 0) or 0)
+                ok = bool(data.get("is_available", False))
+                return {"text": f"¥{total:.2f}", "fill": OFF_C,
+                        "sub": "可用" if ok else "不可用"}
+            if tid == "minimax":
+                if isinstance(data, dict) and ("error" in data
+                                               or data.get("code")
+                                               or data.get("success") is False):
+                    return {"text": "查询失败", "fill": WARN_RED,
+                            "sub": "Key 无效或未授权"}
+                n = _find_number(data)
+                if n is not None:
+                    return {"text": f"剩 {float(n):g}", "fill": OFF_C,
+                            "sub": "Token Plan 订阅额度"}
+                return {"text": "订阅有效", "fill": OFF_C,
+                        "sub": "未返回额度数字"}
+            # 其它平台通用：递归取第一个数值
+            n = _find_number(data)
+            if n is not None:
+                return {"text": f"{float(n):g}", "fill": OFF_C,
+                        "sub": tpl.get("name", "")}
+            return {"text": "查询成功", "fill": FG_DIM, "sub": "未解析到额度"}
+        except Exception:
+            return {"text": "查询失败", "fill": WARN_RED,
+                    "sub": "请检查 Key 或网络"}
+
+    def _maybe_refresh_api_balances(self, now_ts):
+        """每 15 分钟刷新一次 API 订阅额度（跳过手动登记余额的条目）。"""
+        apis = [s for s in self._enabled_api_subs()
+                if not str(s.get("manual", "")).strip()]
+        if not apis:
+            return
+        if now_ts - self._api_balance_fetched_at < 900:
+            return
+        self._api_balance_fetched_at = now_ts
+
+        def work():
+            res = {}
+            for s in apis:
+                try:
+                    r = self._fetch_api_balance_http(s)
+                    if r:
+                        res[s.get("id") or s.get("tpl") or "?"] = r
+                except Exception:
+                    pass
+            self.after(0, lambda: self._apply_api_balances(res))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_api_balances(self, res):
+        self._api_balance.update(res)
+        self.tick()
 
     # ---------- DeepSeek 余额查询（官方 /user/balance 接口） ----------
     def _fetch_balance_http(self):
@@ -1501,6 +1762,7 @@ class Widget(tk.Tk):
         now = time.time()
         # --- 应用网页设置（主线程） ---
         self._drain_web_config()
+        self._maybe_refresh_api_balances(now)
         # --- 页面轮播：每隔 rotate_seconds 秒自动切到下一页 ---
         if (self._page_count > 1 and
                 now - self._last_switch >= float(self.cfg.get("rotate_seconds",
@@ -1517,8 +1779,10 @@ class Widget(tk.Tk):
     def _paint_current(self):
         if self.page_idx == 0:
             self._paint_main()
-        else:
+        elif self.page_idx <= self._sub_pages:
             self._paint_sub_page()
+        else:
+            self._paint_api_page()
         self._paint_page_indicator()
 
     def _paint_sub_page(self):
@@ -1542,6 +1806,31 @@ class Widget(tk.Tk):
                 subtext = f"下次续费 {nxt.month}月{nxt.day}日"
             cv.itemconfig(it["big"], text=text, fill=fill)
             cv.itemconfig(it["subtext"], text=subtext)
+
+    def _paint_api_page(self):
+        cv = self.canvas
+        for it in self._api_dynamic:
+            s = it["sub"]
+            manual = str(s.get("manual", "")).strip()
+            if manual:
+                cv.itemconfig(it["big"], text="¥" + manual, fill=OFF_C)
+                cv.itemconfig(it["subtext"], text="手动登记余额", fill=FG_DIM)
+                continue
+            key_id = s.get("id") or s.get("tpl") or ""
+            bal = self._api_balance.get(key_id)
+            if bal and bal.get("text"):
+                cv.itemconfig(it["big"], text=bal["text"],
+                              fill=bal.get("fill", FG_W))
+                cv.itemconfig(it["subtext"], text=bal.get("sub", ""), fill=FG_DIM)
+            else:
+                tpl = api_tpl_by_id(s.get("tpl", ""))
+                if tpl and tpl.get("balance_url"):
+                    cv.itemconfig(it["big"], text="查询中…", fill=FG_DIM)
+                    cv.itemconfig(it["subtext"], text="每 15 分钟自动刷新", fill=FG_DIM)
+                else:
+                    cv.itemconfig(it["big"], text="控制台查看", fill=FG_DIM)
+                    cv.itemconfig(it["subtext"],
+                                  text="该平台无 API Key 直查接口", fill=FG_DIM)
 
     def _paint_main(self):
         now = datetime.now()
@@ -1763,6 +2052,10 @@ class Widget(tk.Tk):
             pass
         self._preview_out = outdir
         self._preview_queue = list(range(self._page_count))
+        # 预览截图：固定到屏幕左上角并置顶，避免被其它窗口遮挡
+        self.geometry("+0+0")
+        self.attributes("-topmost", True)
+        self.update_idletasks()
         self.after(900, self._preview_capture)
 
     def _preview_capture(self):
