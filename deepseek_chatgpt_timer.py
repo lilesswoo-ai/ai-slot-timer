@@ -77,23 +77,23 @@ DESIGN_W, DESIGN_H = 600, 400   # 设计稿尺寸（内部布局坐标基准）
 PAD = 16
 UI_SCALE = 0.75                   # 宽度/字号缩放系数（1.0=原尺寸）
 UI_SCALE_H = 0.9                  # 高度缩放系数（可单独调高，当前=360 高）
-GRAD_TOP = (27, 62, 148)     # 深蓝（顶部）
-GRAD_BOT = (112, 170, 240)   # 浅蓝（底部）
-GRAD_BG_HEX = "#1b3e94"
+GRAD_TOP = (251, 245, 230)   # 米黄（顶部，低饱和）
+GRAD_BOT = (243, 233, 212)   # 米黄（底部，低饱和）
+GRAD_BG_HEX = "#f3e9d4"
 
 FONT = "Microsoft YaHei"        # 全部文字统一微软雅黑
 MONO = FONT                     # 数字/时段也使用微软雅黑（与正文一致）
-FG_W = "#ffffff"
-FG_DIM = "#eaf4ff"
-PEAK_C = "#ffb4a2"   # 忙时（暖橙红）
-OFF_C  = "#8ff0c9"   # 闲时（亮绿）
-ACC_C  = "#bcd9ff"   # 蓝白
-WARN_C = "#ffe08a"   # 黄
-DIVIDER = "#9cc3ff"
-BTN_BG = "#163d8a"
-BTN_HOV = "#1e54b5"
-BTN_ON = "#1d6f45"   # 开关开
-BAR_BG = "#0e2a63"
+FG_W = "#333a45"
+FG_DIM = "#66707c"
+PEAK_C = "#b45309"   # 忙时（琥珀橙）
+OFF_C  = "#15803d"   # 闲时（绿）
+ACC_C  = "#2563eb"   # 强调蓝
+WARN_C = "#b45309"   # 琥珀
+DIVIDER = "#e6dcc2"
+BTN_BG = "#2563eb"
+BTN_HOV = "#1d4ed8"
+BTN_ON = "#15803d"   # 开关开
+BAR_BG = "#e6dcc2"
 
 # ---------------- 订阅到期提醒参数 ----------------
 SUB_PRESETS = [                      # 内置订阅预设（可改续费日/到期日/停用/删除）
@@ -106,10 +106,10 @@ SUB_PER_PAGE = 4                     # 每页最多显示几个订阅
 DEFAULT_WARN_DAYS = 3                # 到期前 N 天红字提醒（默认 3，可调）
 DEFAULT_ROTATE_SECONDS = 60          # 页面轮播间隔（默认 60 秒，可调）
 FLASH_SECONDS = 3.0                  # 红字闪烁：每 3 秒红/浅红交替
-WARN_RED = "#ff5252"                 # 提醒红
-WARN_RED_LIGHT = "#ffd0cc"           # 提醒浅红（闪烁另一相）
-CARD_BG = "#1a3f8f"                  # 订阅卡片底
-CARD_OUT = "#2f5fb5"                 # 订阅卡片描边
+WARN_RED = "#dc2626"                 # 提醒红
+WARN_RED_LIGHT = "#fee2e2"           # 提醒浅红（闪烁另一相）
+CARD_BG = "#fffdf5"                  # 订阅卡片底
+CARD_OUT = "#e6dcc2"                 # 订阅卡片描边
 LOGO_SIZE = 34                       # 订阅卡片左侧自动 LOGO 圆直径（设计坐标）
 
 # ---------------- API 订阅额度模板（官方真实接口） ----------------
@@ -392,7 +392,7 @@ class WinTray:
             except Exception:
                 font = ImageFont.load_default()
             d.ellipse((2, 2, 62, 62), fill=(255, 255, 255, 255))
-            d.text((32, 32), "AI", font=font, fill=GRAD_BG_HEX, anchor="mm")
+            d.text((32, 32), "AI", font=font, fill=(51, 58, 69), anchor="mm")
             img.save(tmp, format="ICO", sizes=[(32, 32), (64, 64)])
             return ctypes.windll.user32.LoadImageW(
                 None, tmp, _IMAGE_ICON, 32, 32, _LR_LOADFROMFILE)
@@ -807,7 +807,7 @@ class Widget(tk.Tk):
 
         self._icon_ds = self._load_icon("deepseek_icon.png")
         self._icon_gpt = self._load_icon("chatgpt_icon.png")
-        _gear = make_gear(20, (255, 255, 255))
+        _gear = make_gear(20, (51, 58, 69))
         if abs(UI_SCALE * self._zoom - 1.0) > 1e-9:
             _gear = _gear.resize(
                 (max(1, int(20 * UI_SCALE * self._zoom)),
@@ -1007,12 +1007,12 @@ class Widget(tk.Tk):
         cv = self.canvas
         cv.delete("all")
         self._layout_top()
-        self._pin_bg_off = self._pill(66, 20, (255, 255, 255), 38)
-        self._pin_bg_on = self._pill(66, 20, (188, 217, 255), 88)
-        self._pin_bg_hover = self._pill(66, 20, (255, 255, 255), 88)
-        self._zoom_bg_off = self._pill(38, 20, (255, 255, 255), 38)
-        self._zoom_bg_on = self._pill(38, 20, (188, 217, 255), 88)
-        self._zoom_bg_hover = self._pill(38, 20, (255, 255, 255), 88)
+        self._pin_bg_off = self._pill(66, 20, (51, 58, 69), 36)
+        self._pin_bg_on = self._pill(66, 20, (37, 99, 235), 110)
+        self._pin_bg_hover = self._pill(66, 20, (51, 58, 69), 90)
+        self._zoom_bg_off = self._pill(38, 20, (51, 58, 69), 36)
+        self._zoom_bg_on = self._pill(38, 20, (37, 99, 235), 110)
+        self._zoom_bg_hover = self._pill(38, 20, (51, 58, 69), 90)
         self._bg_img = ImageTk.PhotoImage(
             make_gradient(int(DESIGN_W * UI_SCALE * self._zoom),
                           int(DESIGN_H * UI_SCALE_H * self._zoom),
@@ -1405,8 +1405,8 @@ class Widget(tk.Tk):
 
     # ---------- 菜单 ----------
     def _menu(self, e):
-        m = tk.Menu(self, tearoff=0, bg="#122b5e", fg=FG_W,
-                    activebackground="#1e54b5", activeforeground=FG_W,
+        m = tk.Menu(self, tearoff=0, bg="#fffdf5", fg=FG_W,
+                    activebackground="#e8e0cc", activeforeground=FG_W,
                     font=(FONT, 9))
         m.add_command(label="打开设置（网页）", command=self.open_web_settings)
         m.add_command(label="下一页", command=self.next_page)
@@ -1696,7 +1696,7 @@ class Widget(tk.Tk):
                 return f.read()
         except Exception:
             return ("<!doctype html><meta charset='utf-8'>"
-                    "<body style='background:#0e2a63;color:#fff;font-family:sans-serif;"
+                    "<body style='background:#f3e9d4;color:#333a45;font-family:sans-serif;"
                     "padding:40px'><h1>设置页</h1>"
                     "<p>未找到 settings.html，请确认它与主程序在同一目录。</p></body>")
 
