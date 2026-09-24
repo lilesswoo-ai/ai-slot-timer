@@ -6,9 +6,9 @@
 <title>发条AI时段小组件 · 设置</title>
 <style>
   :root {
-    --bg1:#0e2a63; --bg2:#1b3e94; --card:#163d8a; --card2:#1a4498;
-    --line:#2f5fb5; --fg:#ffffff; --dim:#cfe0ff; --acc:#7ec8ff;
-    --green:#7dffc0; --red:#ff6b6b; --warn:#ffd76a;
+    --bg1:#fbf5e6; --bg2:#f3e9d4; --card:#fffdf5; --card2:#fff8e8;
+    --line:#e6dcc2; --fg:#333a45; --dim:#66707c; --acc:#2563eb;
+    --green:#15803d; --red:#dc2626; --warn:#b45309;
   }
   * { box-sizing:border-box; margin:0; padding:0; }
   body {
@@ -17,44 +17,53 @@
     color:var(--fg); min-height:100vh; padding:28px 20px 60px;
   }
   .wrap { max-width:860px; margin:0 auto; }
-  header h1 { font-size:26px; font-weight:700; letter-spacing:.5px; }
+  header h1 { font-size:26px; font-weight:700; letter-spacing:.5px; color:#26314a; }
   header p { color:var(--dim); font-size:16px; margin-top:8px; }
   .status {
     float:right; margin-top:-34px; font-size:16px; color:var(--green);
-    background:rgba(0,0,0,.25); padding:6px 14px; border-radius:14px;
+    background:rgba(255,255,255,.8); border:1px solid #d7e8d0;
+    padding:6px 14px; border-radius:14px;
   }
   .card {
     background:var(--card); border:1px solid var(--line); border-radius:14px;
-    padding:20px 22px; margin-top:18px;
+    padding:20px 22px; margin-top:18px; box-shadow:0 2px 6px rgba(120,100,60,.08);
   }
+  .card:nth-of-type(1) { background:#fffdf0; border-color:#eadfc4; }
+  .card:nth-of-type(2) { background:#eef5fb; border-color:#d5e2ef; }
+  .card:nth-of-type(3) { background:#eef8ef; border-color:#d3e5d5; }
+  .card:nth-of-type(4) { background:#fdf5e9; border-color:#ecd9c2; }
+  .card:nth-of-type(5) { background:#eef2fb; border-color:#d8dfef; }
+  .card:nth-of-type(6) { background:#f7f2fb; border-color:#e2d7ec; }
+  .card:nth-of-type(7) { background:#f2f7ec; border-color:#d8e3cd; }
+  .card:nth-of-type(8) { background:#fdf1f0; border-color:#e8d2d0; }
   .card h2 {
-    font-size:18px; font-weight:700; margin-bottom:8px;
+    font-size:18px; font-weight:700; margin-bottom:8px; color:#233a66;
     display:flex; align-items:center; gap:8px;
   }
   .card h2 .bar { width:4px; height:16px; background:var(--acc); border-radius:2px; }
   .card .hint { color:var(--dim); font-size:15px; margin-bottom:16px; }
   .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:10px; }
-  label { font-size:16px; color:var(--dim); white-space:nowrap; }
+  label { font-size:16px; color:#566070; white-space:nowrap; }
   input[type=text], input[type=number], input[type=password], input[type=date], select {
-    background:#0e2a63; color:var(--fg); border:1px solid var(--line);
+    background:#ffffff; color:var(--fg); border:1px solid #d8cfb6;
     border-radius:8px; padding:9px 12px; font-size:16px; outline:none;
   }
   input:focus, select:focus { border-color:var(--acc); }
   input[type=checkbox] { width:18px; height:18px; accent-color:#2f8f5e; cursor:pointer; }
-  input[type=time] { background:#0e2a63; color:var(--fg); border:1px solid var(--line);
+  input[type=time] { background:#ffffff; color:var(--fg); border:1px solid #d8cfb6;
     border-radius:8px; padding:8px 12px; font-size:16px; }
   button {
-    background:#1e54b5; color:#fff; border:none; border-radius:8px;
+    background:#2563eb; color:#fff; border:none; border-radius:8px;
     padding:9px 18px; font-size:16px; cursor:pointer;
   }
-  button:hover { background:#2a6adf; }
-  button.danger { background:#8a2f2f; }
-  button.danger:hover { background:#a93a3a; }
+  button:hover { background:#1d4ed8; }
+  button.danger { background:#b91c1c; }
+  button.danger:hover { background:#991b1b; }
   .toggle { display:inline-flex; align-items:center; gap:8px; margin-right:18px; cursor:pointer; }
   .toggle input { margin:0; }
   .sub-row {
     display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-    background:var(--card2); border:1px solid var(--line);
+    background:#ffffff; border:1px solid #e3dbc4;
     border-radius:10px; padding:10px 14px; margin-top:10px;
   }
   .sub-row .dot { width:12px; height:12px; border-radius:3px; flex:0 0 auto; }
@@ -65,7 +74,7 @@
   table.price th, table.price td {
     text-align:left; padding:9px 12px; border-bottom:1px solid var(--line);
   }
-  table.price th { color:var(--dim); font-weight:600; }
+  table.price th { color:var(--dim); font-weight:600; background:rgba(255,255,255,.6); }
   .mono { font-family:"Microsoft YaHei","微软雅黑",sans-serif; }
   .warn-text { color:var(--warn); font-size:14px; }
   .red { color:var(--red); }
