@@ -1116,7 +1116,7 @@ class Widget(tk.Tk):
     def _layout_top(self):
         """标题栏三组（页码导航 / 1x 缩放 / 置顶）整体水平居中，与左右两边等距；× 固定右上角。"""
         num_w, tri_w = 13, 12
-        zoom_w, pin_w, gap = 38, 66, 12
+        zoom_w, pin_w, gap = 38, 66, 30
         nav_w = tri_w + max(1, self._page_count) * num_w + tri_w
         total = nav_w + zoom_w + pin_w + gap * 2
         start = (DESIGN_W - total) // 2
