@@ -1,5 +1,8 @@
 # 发条AI时段小组件 (ai-slot-timer)
-<img width="320" height="240" alt="image" src="https://github.com/user-attachments/assets/1d909322-421b-4cc8-9256-99b472f65df9" />
+<img width="720" height="557" alt="f2749993036ebe81" src="https://github.com/user-attachments/assets/cd2b7c46-02f9-4b0f-919d-04b2f926984a" />
+
+<img width="1112" height="669" alt="image" src="https://github.com/user-attachments/assets/e602d75f-9f61-4975-aac9-58420882deeb" />
+
 
 
 一块 Windows 桌面置顶小组件（**深蓝→浅蓝垂直渐变底 + 圆角卡片**，白色文字，带 DeepSeek 鲸鱼 / ChatGPT 螺旋徽章图标），**多页面自动轮播**，帮你安排任务时间：
