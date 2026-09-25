@@ -28,7 +28,7 @@
     deepseek-flash   忙 入2/出8    闲 入1/出4
     deepseek-v4-pro  忙 入9/出27   闲 入4.5/出13.5
 
-依赖：Python 3.9+，tkinter + Pillow + pystray（托盘）。
+依赖：Python 3.9+，tkinter + Pillow（托盘用 Win32 Shell_NotifyIcon 自绘，无第三方依赖）。
 用法：
     pythonw deepseek_chatgpt_timer.py            # 静默启动
     python  deepseek_chatgpt_timer.py --selftest # 逻辑自检

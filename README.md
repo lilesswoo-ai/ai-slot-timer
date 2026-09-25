@@ -1,11 +1,10 @@
 # 发条AI时段小组件 (ai-slot-timer)
-<img width="720" height="557" alt="f2749993036ebe81" src="https://github.com/user-attachments/assets/cd2b7c46-02f9-4b0f-919d-04b2f926984a" />
+<img width="720" height="557" alt="主界面（1.5×）" src="https://github.com/user-attachments/assets/cd2b7c46-02f9-4b0f-919d-04b2f926984a" />
 
-<img width="1112" height="669" alt="image" src="https://github.com/user-attachments/assets/e602d75f-9f61-4975-aac9-58420882deeb" />
+<img width="800" height="481" alt="订阅到期提醒（1.5×）" src="https://github.com/user-attachments/assets/e602d75f-9f61-4975-aac9-58420882deeb" />
 
 
-
-一块 Windows 桌面置顶小组件（**深蓝→浅蓝垂直渐变底 + 圆角卡片**，白色文字，带 DeepSeek 鲸鱼 / ChatGPT 螺旋徽章图标），**多页面自动轮播**，帮你安排任务时间：
+一块 Windows 桌面置顶小组件（**低饱和米黄渐变底 + 圆角卡片**，深色文字，带 DeepSeek 鲸鱼 / ChatGPT 螺旋徽章图标），**多页面自动轮播**，帮你安排任务时间：
 
 | 区块 | 内容 |
 |---|---|
@@ -18,7 +17,7 @@
 
 ### 安装版（推荐，带桌面图标 + 可选开机启动）
 
-1. 在 [**GitHub Releases**](https://github.com/lilesswoo-ai/ai-slot-timer/releases) 下载 `ai-slot-timer-setup-1.0.0.exe`（约 32MB）。
+1. 在 [**GitHub Releases**](https://github.com/lilesswoo-ai/ai-slot-timer/releases) 下载 `ai-slot-timer-setup-1.2.0.exe`（约 32MB）。
 2. 双击运行安装程序（中文向导，**无需管理员权限**）：
    - 默认安装到 `%LOCALAPPDATA%\发条AI时段小组件`，可改目录
    - **自动创建桌面快捷方式**
@@ -30,7 +29,7 @@
 
 ### 绿色版（免安装）
 
-1. 在 [**GitHub Releases**](https://github.com/lilesswoo-ai/ai-slot-timer/releases) 下载 `ai-slot-timer-v1.0.0-portable.zip`（约 30MB）。
+1. 在 [**GitHub Releases**](https://github.com/lilesswoo-ai/ai-slot-timer/releases) 下载 `ai-slot-timer-v1.2.0-portable.zip`（约 30MB）。
 2. 解压到任意目录（建议英文或中文路径均可），例如 `D:\发条AI时段小组件\`。
 3. 双击 `发条AI时段小组件.exe` 即启动，**无需安装 Python、无需任何环境依赖**。
 4. 首次启动自动生成 `config.json`；可选：复制 `config.example.json` 为 `config.json` 作模板。
@@ -43,7 +42,7 @@
 ### 从源码运行（开发用）
 
 1. 安装 Python 3.9+（勾选 **Add Python to PATH**）。
-2. `pip install pillow pystray`（可选，托盘图标）。
+2. `pip install pillow`（系统托盘已内建 Win32 实现，无需额外依赖）。
 3. `pythonw deepseek_chatgpt_timer.py` 启动；`python deepseek_chatgpt_timer.py --selftest` 自检；`--preview [目录]` 可逐页截图验证。
 4. 重新打包 exe：`pyinstaller --onefile --noconsole --name "发条AI时段小组件" deepseek_chatgpt_timer.py`，然后把 `settings.html` 复制到 exe 同目录（网页设置页由 exe 旁文件提供）。
 
@@ -107,8 +106,8 @@
 
 ## 技术说明
 
-- 语言/依赖：**Python 3.9+，tkinter + Pillow + pystray**（渐变背景、品牌图标、系统托盘）；mp3 提示音用 Windows 自带 MCI 播放，无额外依赖。
-- 界面：600×400 物理像素、深蓝→浅蓝垂直渐变、圆角卡片、置顶、可拖拽、全 Canvas 绘制、**多页面**（主界面 + 订阅到期提醒页 + API 额度页，默认每 60 秒轮播，页码可点手动切换）。
+- 语言/依赖：**Python 3.9+，tkinter + Pillow**（渐变背景、品牌图标；系统托盘用 Win32 Shell_NotifyIcon 自绘，无第三方依赖）；mp3 提示音用 Windows 自带 MCI 播放，无额外依赖。
+- 界面：600×400 物理像素、**低饱和米黄渐变**、圆角卡片、置顶、可拖拽、全 Canvas 绘制、支持 **1×/1.5× 界面缩放**、**多页面**（主界面 + 订阅到期提醒页 + API 额度页，默认每 60 秒轮播，页码可点手动切换）。
 - 设置页：**网页形式**（小组件内置 127.0.0.1 本地 HTTP 服务，浏览器大页面；配置通过 GET/POST `/api/config` 读写，改动即保存并即时生效）。
 - 图标：`assets/deepseek_icon.png`、`assets/chatgpt_icon.png`（28×28 白色圆底徽章）。
 - 提示音：`short-notification-sound-for-meizu.mp3`（默认提示音，可替换为同名 wav/mp3）。
@@ -121,3 +120,35 @@
   - `short-notification-sound-for-meizu.mp3` —— 默认提示音
   - `config.json` —— 自动生成，保存位置/周期/重置时间/订阅/声音开关/API Key
   - `widget_main.png` / `widget_settings.png` —— 主界面与设置页效果预览图
+
+
+## 更新记录
+
+### v1.2.0（2026-09-24）
+- 蓝色按钮背景全部改为**低饱和浅蓝**：主界面「同步重置时间/日期」按钮、置顶开 / 1.5× 激活胶囊、设置页所有按钮，文字同步改深灰
+- 界面风格与设置页完全统一为**低饱和米黄底 + 深色文字**
+
+### v1.1.9（2026-09-24）
+- 主界面整体配色改为与设置页一致的**低饱和米黄底**（#fbf5e6 → #f3e9d4）+ **深色文字**（#333a45 / #66707c）
+- 忙时琥珀橙、闲时绿、强调蓝与设置页色板统一；订阅卡片改暖白底 + 米色描边；右键菜单、托盘图标同步适配
+
+### v1.1.8（2026-09-24）
+- × 关闭按钮移到右上角更靠右（距右边缘约 24px）
+- 顶部三个按钮（页码导航 / 1× 缩放 / 置顶）之间**等距且间距加宽**，整体仍水平居中
+
+### v1.1.6（2026-09-24）
+- 标题栏「页码导航 ◀12▶ / 1× 缩放 / 置顶」三部分作为一组**整体水平居中**，与左右两边等距
+
+### v1.1.5（2026-09-24）
+- 置顶 / 1× 改为**半透明胶囊按钮**（深灰半透明底、激活态浅蓝），悬停高亮、间距分开
+
+### v1.1.4（2026-09-24）
+- 设置页改为**米黄底 + 8 个区域各自不同浅色底色** + 深色大字
+
+### v1.1.3（2026-09-24）
+- 设置页整体字体放大约 1.3 倍，控件间距同步加大
+
+### v1.1.2（2026-09-24）
+- **托盘重写**：改用 Win32 Shell_NotifyIcon 自绘托盘（不再依赖 pystray）；点 × 只隐藏到托盘、左键托盘图标恢复显示、托盘右键菜单才能退出
+- 新增 **1× / 1.5× 界面缩放** 一键切换（标题栏按钮，全局生效）
+- 余额行字号加大加粗
