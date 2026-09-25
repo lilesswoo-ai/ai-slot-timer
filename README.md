@@ -65,6 +65,7 @@
 - **节假日覆盖**：DeepSeek 官方规则是法定节假日全天按闲时计。遇到节假日当天，右键 →「今天强制闲时」，组件当天按全天闲时显示。
 - **API 订阅额度**：网页设置 →「API 订阅额度」→ 下拉选择平台模板 → 输入 API Key（可选填「手动余额」）→「＋ 添加 API」。支持一键查询的平台（硅基流动 `user/info`、MiniMax `token_plan/remains`、DeepSeek `user/balance`）每 15 分钟自动刷新余额；无 API Key 直查接口的平台（智谱 / 月之暗面 / 火山引擎 / 阿里云百炼 / 腾讯云）需登录各自控制台查看，可在设置页登记手动余额。新增的 API 条目在订阅到期提醒页之后新增页面显示，与订阅页一起轮播。
 - **配置**：位置、周期、重置时间、订阅、声音开关保存在同目录 `config.json`，下次启动自动恢复。
+<img width="1173" height="1794" alt="image" src="https://github.com/user-attachments/assets/bba4dc50-4fa1-4432-9c45-d0cadf7c5455" />
 
 ## 订阅到期提醒（多页面轮播）
 
